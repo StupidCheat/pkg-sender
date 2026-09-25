@@ -1,4 +1,4 @@
-name: iOS IPA
+name: iOS IPAA
 
 on:
   workflow_dispatch:
