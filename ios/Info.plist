@@ -1,16 +1,63 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Info-additions.plist
+  -----------------------------------------------------------------------
+  Esto NO es un Info.plist completo — es el fragmento que debes fusionar
+  dentro del <dict> raíz de tu Info.plist real (el que ya tiene tu
+  proyecto, normalmente en iOS/Info.plist o Platforms/iOS/Info.plist).
+
+  Qué hace cada clave:
+
+  - UTImportedTypeDeclarations: declara un UTI propio para archivos .pkg
+    para que iOS deje de tratarlos como "installer package" / bundle al
+    abrirlos con UIDocumentPickerViewController. Sin esto, el picker se
+    queda "colgado" al tocar Abrir en un .pkg (síntoma original).
+
+  - LSSupportsOpeningDocumentsInPlace: permite trabajar con archivos en
+    su ubicación original (asCopy: false) sin que iOS los copie a un
+    sandbox temporal. Necesario para no duplicar archivos pesados.
+
+  - UIFileSharingEnabled: hace visible la carpeta Documents de la app
+    en la app Archivos / iTunes File Sharing, útil para depurar o para
+    colocar PKGs directamente en el sandbox de la app.
+
+  - UISupportsDocumentBrowser: habilita el modo de navegador de
+    documentos completo (opcional, pero recomendado junto con
+    UIFileSharingEnabled si el usuario va a elegir carpetas externas).
+  -----------------------------------------------------------------------
+-->
 <plist version="1.0">
 <dict>
-  <key>CFBundleDisplayName</key><string>PKG Sender</string>
-  <key>CFBundleIdentifier</key><string>com.loopayehh.pkgsender</string>
-  <key>LSRequiresIPhoneOS</key><true/>
-  <key>UIDeviceFamily</key><array><integer>1</integer><integer>2</integer></array>
-  <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>
-  <key>NSLocalNetworkUsageDescription</key><string>PKG Sender finds your PS4/PS5 on the local network and serves game files to it over HTTP.</string>
-  <key>NSBonjourServices</key><array><string>_http._tcp</string></array>
-  <key>UIBackgroundModes</key><array><string>fetch</string></array>
-  <key>UIFileSharingEnabled</key><true/>
-  <key>LSSupportsOpeningDocumentsInPlace</key><true/>
+
+    <key>UTImportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.loopayeh.pkgsender.pkg</string>
+            <key>UTTypeDescription</key>
+            <string>PS4/PS5 Package</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>pkg</string>
+                </array>
+            </dict>
+        </dict>
+    </array>
+
+    <key>LSSupportsOpeningDocumentsInPlace</key>
+    <true/>
+
+    <key>UIFileSharingEnabled</key>
+    <true/>
+
+    <key>UISupportsDocumentBrowser</key>
+    <true/>
+
 </dict>
 </plist>
