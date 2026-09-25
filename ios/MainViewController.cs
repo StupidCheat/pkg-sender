@@ -3,7 +3,6 @@ using System.Net.Sockets;
 using Foundation;
 using LoopDPI.Core;
 using UIKit;
-using UniformTypeIdentifiers;
 
 namespace PkgSender.iOS;
 
@@ -80,7 +79,7 @@ public sealed class MainViewController : UIViewController
             scroll.TrailingAnchor.ConstraintEqualTo(View.SafeAreaLayoutGuide.TrailingAnchor),
         });
 
-        // Configuración de auto-layout usando LayoutGuides para evitar desbordamientos a la derecha
+        // Configuración de Auto-Layout usando LayoutGuides
         NSLayoutConstraint.ActivateConstraints(new[]
         {
             stack.TopAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.TopAnchor, 12),
@@ -260,9 +259,15 @@ public sealed class MainViewController : UIViewController
 
     void PickFlow()
     {
-        // Ampliación de tipos de documento para permitir la selección de PKGs
-        var types = new[] { UTType.Item, UTType.Data, UTType.Content };
-        var picker = new UIDocumentPickerViewController(types, true)
+        // String identifiers compatibles sin necesidad de UTType de iOS 14+
+        string[] allowedTypes = new string[] 
+        { 
+            "public.item", 
+            "public.data", 
+            "public.content" 
+        };
+
+        var picker = new UIDocumentPickerViewController(allowedTypes, UIDocumentPickerMode.Open)
         {
             AllowsMultipleSelection = true
         };
@@ -278,7 +283,12 @@ public sealed class MainViewController : UIViewController
                 if (await AddUrlAsync(url)) n++;
             }
             RefreshLib();
-            Say(n > 0 ? $"{n} agregado(s) — marca para enviar" : "No se pudo agregar el archivo");
+            Say(n > 0 ? $"{n} agregado(s) — marca la casilla para enviar" : "No se pudo agregar el archivo");
+        };
+
+        picker.WasCancelled += (_, _) =>
+        {
+            picker.DismissViewController(true, null);
         };
 
         PresentViewController(picker, true, null);
@@ -289,7 +299,6 @@ public sealed class MainViewController : UIViewController
         bool access = false;
         try
         {
-            // Solicita permisos a la Sandbox de iOS
             access = url.StartAccessingSecurityScopedResource();
             
             string name = url.LastPathComponent ?? "game.pkg";
