@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using System.Net;
 using System.Net.Sockets;
 using Foundation;
-using LoopDPI.Core; // Asumo que aquí están tus clases de consola y servidor
+using LoopDPI.Core; // Asume que aquí están tus clases de consola y servidor
 using UIKit;
 using UniformTypeIdentifiers;
 
@@ -67,22 +67,28 @@ public sealed class MainViewController : UIViewController
         var stack = new UIStackView
         {
             Axis = UILayoutConstraintAxis.Vertical,
-            Spacing = 12,
+            Spacing = 16, 
+            Alignment = UIStackViewAlignment.Fill, 
             TranslatesAutoresizingMaskIntoConstraints = false,
         };
+        
         View.AddSubview(scroll);
         scroll.AddSubview(stack);
+        
+        // REGLAS PARA EL SCROLLVIEW Y EL STACK (Centrado perfecto)
         NSLayoutConstraint.ActivateConstraints(new[]
         {
             scroll.TopAnchor.ConstraintEqualTo(View.SafeAreaLayoutGuide.TopAnchor),
-            scroll.LeadingAnchor.ConstraintEqualTo(View.LeadingAnchor),
-            scroll.TrailingAnchor.ConstraintEqualTo(View.TrailingAnchor),
+            scroll.LeadingAnchor.ConstraintEqualTo(View.SafeAreaLayoutGuide.LeadingAnchor),
+            scroll.TrailingAnchor.ConstraintEqualTo(View.SafeAreaLayoutGuide.TrailingAnchor),
             scroll.BottomAnchor.ConstraintEqualTo(View.SafeAreaLayoutGuide.BottomAnchor),
-            stack.TopAnchor.ConstraintEqualTo(scroll.TopAnchor, 12),
-            stack.LeadingAnchor.ConstraintEqualTo(scroll.LeadingAnchor, 16),
-            stack.TrailingAnchor.ConstraintEqualTo(scroll.TrailingAnchor, -16),
-            stack.BottomAnchor.ConstraintEqualTo(scroll.BottomAnchor, -12),
-            stack.WidthAnchor.ConstraintEqualTo(scroll.WidthAnchor, -32),
+            
+            stack.TopAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.TopAnchor, 16),
+            stack.BottomAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.BottomAnchor, -16),
+            stack.LeadingAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.LeadingAnchor, 16),
+            stack.TrailingAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.TrailingAnchor, -16),
+            
+            stack.WidthAnchor.ConstraintEqualTo(scroll.FrameLayoutGuide.WidthAnchor, -32)
         });
 
         // hero: title + IP + Test + Detect
@@ -98,7 +104,7 @@ public sealed class MainViewController : UIViewController
             AutocorrectionType = UITextAutocorrectionType.No,
         };
         hero.AddArrangedSubview(_ipField);
-        var row = new UIStackView { Axis = UILayoutConstraintAxis.Horizontal, Spacing = 8 };
+        var row = new UIStackView { Axis = UILayoutConstraintAxis.Horizontal, Spacing = 8, Distribution = UIStackViewDistribution.FillEqually };
         row.AddArrangedSubview(MkBtn("Test", async () => await TestAsync()));
         row.AddArrangedSubview(MkBtn("Detect", async () => await DetectAsync()));
         var guide = MkBtn("Guide", ShowGuide);
@@ -111,14 +117,14 @@ public sealed class MainViewController : UIViewController
         // ELF card
         var elf = Card();
         elf.AddArrangedSubview(MkLabel("pkg-receiver.elf (bundled, PS5 only)", 15, true));
-        var elfRow = new UIStackView { Axis = UILayoutConstraintAxis.Horizontal, Spacing = 8 };
+        var elfRow = new UIStackView { Axis = UILayoutConstraintAxis.Horizontal, Spacing = 8, Distribution = UIStackViewDistribution.FillEqually };
         elfRow.AddArrangedSubview(MkBtn("Save", async () => await ExportElfAsync(false)));
         elfRow.AddArrangedSubview(MkBtn("Share", async () => await ExportElfAsync(true)));
         elf.AddArrangedSubview(elfRow);
         stack.AddArrangedSubview(elf);
 
         // library header + add
-        var libRow = new UIStackView { Axis = UILayoutConstraintAxis.Horizontal, Spacing = 8 };
+        var libRow = new UIStackView { Axis = UILayoutConstraintAxis.Horizontal, Spacing = 8, Distribution = UIStackViewDistribution.EqualSpacing };
         _libHead = MkLabel("Library (0)", 20, true);
         libRow.AddArrangedSubview(_libHead);
         libRow.AddArrangedSubview(MkBtn("+ Add", PickFlow));
@@ -126,15 +132,20 @@ public sealed class MainViewController : UIViewController
 
         _table = new UITableView { RowHeight = 64, ScrollEnabled = false, TranslatesAutoresizingMaskIntoConstraints = false };
         _table.HeightAnchor.ConstraintEqualTo(320).Active = true;
+        _table.Layer.CornerRadius = 12; 
         _table.Source = new LibSource(this);
         stack.AddArrangedSubview(_table);
 
         _sendBtn = MkBtn("Send queue", async () => await SendQueueAsync(), filled: true);
+        _sendBtn.HeightAnchor.ConstraintEqualTo(50).Active = true; 
         stack.AddArrangedSubview(_sendBtn);
+        
         _prog = new UIProgressView(UIProgressViewStyle.Default);
         stack.AddArrangedSubview(_prog);
+        
         _statusLabel = MkLabel("add a PKG, tick it, then Send", 13, false, UIColor.SecondaryLabel);
         _statusLabel.Lines = 3;
+        _statusLabel.TextAlignment = UITextAlignment.Center; 
         stack.AddArrangedSubview(_statusLabel);
 
         NavigationItem.RightBarButtonItem = new UIBarButtonItem("About", UIBarButtonItemStyle.Plain,
@@ -190,13 +201,12 @@ public sealed class MainViewController : UIViewController
     {
         var types = new[] { UTTypes.Data, UTTypes.Item };
         
-        // FALSO (false) es VITAL aquí. Evita que iOS intente hacer una copia en caché del archivo (lo cual congela el teléfono si pesa 50GB).
+        // FALSO (false) es VITAL aquí. Evita que iOS intente hacer una copia en caché del archivo.
         var picker = new UIDocumentPickerViewController(types, asCopy: false)
         {
             AllowsMultipleSelection = true
         };
 
-        // Usamos DidPickDocumentAtUrls en lugar del viejo DidPickDocument
         picker.DidPickDocumentAtUrls += async (sender, e) =>
         {
             var urls = e.Urls;
@@ -224,7 +234,6 @@ public sealed class MainViewController : UIViewController
             string name = url.LastPathComponent ?? "game.pkg";
             string path = url.Path!;
             
-            // Ya NO copiamos el archivo a Path.GetTempPath(). Leemos directo de la ruta original.
             string low = name.ToLowerInvariant();
             string fmt = low.EndsWith(".exfat") ? "exfat" : low.EndsWith(".ffpfsc") ? "ffpfsc"
                 : low.EndsWith(".ffpkg") ? "ffpkg" : low.EndsWith(".pfs") ? "pfs" : "pkg";
