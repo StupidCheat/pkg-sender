@@ -38,7 +38,6 @@ public sealed class MainViewController : UIViewController
     UIButton? _sendBtn;
     UITableView? _table;
     UILabel? _libHead;
-    NSLayoutConstraint? _tableHeightConstraint;
 
     string SavedIp
     {
@@ -59,15 +58,10 @@ public sealed class MainViewController : UIViewController
             Spacing = 12,
             TranslatesAutoresizingMaskIntoConstraints = false,
         };
-
-        // Mantener LTR en sistemas RTL para evitar desplazamientos raros
-        scroll.SemanticContentAttribute = UISemanticContentAttribute.ForceLeftToRight;
-        stack.SemanticContentAttribute = UISemanticContentAttribute.ForceLeftToRight;
-
         View.AddSubview(scroll);
         scroll.AddSubview(stack);
 
-        // CORRECCIÓN AUTO LAYOUT: Uso de ContentLayoutGuide y FrameLayoutGuide
+        // AUTO LAYOUT CORREGIDO
         NSLayoutConstraint.ActivateConstraints(new[]
         {
             scroll.TopAnchor.ConstraintEqualTo(View.SafeAreaLayoutGuide.TopAnchor),
@@ -79,7 +73,6 @@ public sealed class MainViewController : UIViewController
             stack.LeadingAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.LeadingAnchor, 16),
             stack.TrailingAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.TrailingAnchor, -16),
             stack.BottomAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.BottomAnchor, -12),
-
             stack.WidthAnchor.ConstraintEqualTo(scroll.FrameLayoutGuide.WidthAnchor, -32)
         });
 
@@ -94,23 +87,19 @@ public sealed class MainViewController : UIViewController
             BorderStyle = UITextBorderStyle.RoundedRect,
             KeyboardType = UIKeyboardType.NumbersAndPunctuation,
             AutocorrectionType = UITextAutocorrectionType.No,
-            TextAlignment = UITextAlignment.Left,
         };
-        _ipField.SemanticContentAttribute = UISemanticContentAttribute.ForceLeftToRight;
         hero.AddArrangedSubview(_ipField);
-
         var row = new UIStackView { Axis = UILayoutConstraintAxis.Horizontal, Spacing = 8, Distribution = UIStackViewDistribution.FillEqually };
         row.AddArrangedSubview(MkBtn("Test", async () => await TestAsync()));
         row.AddArrangedSubview(MkBtn("Detect", async () => await DetectAsync()));
         var guide = MkBtn("Guide", ShowGuide);
         row.AddArrangedSubview(guide);
         hero.AddArrangedSubview(row);
-
         _connLabel = MkLabel("not tested", 13, true, UIColor.SecondaryLabel);
         hero.AddArrangedSubview(_connLabel);
         stack.AddArrangedSubview(hero);
 
-        // ELF card
+        // ELF card (same bundled pkg-receiver.elf as Android)
         var elf = Card();
         elf.AddArrangedSubview(MkLabel("pkg-receiver.elf (bundled, PS5 only)", 15, true));
         var elfRow = new UIStackView { Axis = UILayoutConstraintAxis.Horizontal, Spacing = 8, Distribution = UIStackViewDistribution.FillEqually };
@@ -127,8 +116,7 @@ public sealed class MainViewController : UIViewController
         stack.AddArrangedSubview(libRow);
 
         _table = new UITableView { RowHeight = 64, ScrollEnabled = false, TranslatesAutoresizingMaskIntoConstraints = false };
-        _tableHeightConstraint = _table.HeightAnchor.ConstraintEqualTo(64);
-        _tableHeightConstraint.Active = true;
+        _table.HeightAnchor.ConstraintEqualTo(320).Active = true;
         _table.Source = new LibSource(this);
         stack.AddArrangedSubview(_table);
 
@@ -140,7 +128,8 @@ public sealed class MainViewController : UIViewController
         _statusLabel.Lines = 3;
         stack.AddArrangedSubview(_statusLabel);
 
-        NavigationItem.RightBarButtonItem = new UIBarButtonItem("About", UIBarButtonItemStyle.Plain, (_, _) => ShowAbout());
+        NavigationItem.RightBarButtonItem = new UIBarButtonItem("About", UIBarButtonItemStyle.Plain,
+            (_, _) => ShowAbout());
         RefreshLib();
     }
 
@@ -149,8 +138,7 @@ public sealed class MainViewController : UIViewController
     {
         var s = new UIStackView
         {
-            Axis = UILayoutConstraintAxis.Vertical,
-            Spacing = 8,
+            Axis = UILayoutConstraintAxis.Vertical, Spacing = 8,
             LayoutMarginsRelativeArrangement = true,
         };
         s.LayoutMargins = new UIEdgeInsets(14, 14, 14, 14);
@@ -158,73 +146,49 @@ public sealed class MainViewController : UIViewController
         s.BackgroundColor = UIColor.SecondarySystemBackground;
         return s;
     }
-
     static UILabel MkLabel(string t, nfloat size, bool bold, UIColor? c = null)
     {
         var l = new UILabel { Text = t, Font = bold ? UIFont.BoldSystemFontOfSize(size) : UIFont.SystemFontOfSize(size) };
         if (c != null) l.TextColor = c;
         return l;
     }
-
     static UIButton MkBtn(string t, Action a, bool filled = false)
     {
         var b = new UIButton(UIButtonType.System);
         b.SetTitle(t, UIControlState.Normal);
-        if (filled)
-        {
-            b.BackgroundColor = UIColor.SystemBlue;
-            b.SetTitleColor(UIColor.White, UIControlState.Normal);
-            b.Layer.CornerRadius = 12;
-        }
+        if (filled) { b.BackgroundColor = UIColor.SystemBlue; b.SetTitleColor(UIColor.White, UIControlState.Normal); b.Layer.CornerRadius = 12; }
         b.TouchUpInside += (_, _) => a();
         return b;
     }
-
     void Say(string s) => InvokeOnMainThread(() => { if (_statusLabel != null) _statusLabel.Text = s; });
-
     void SetConn(bool? ok, string t) => InvokeOnMainThread(() =>
     {
         if (_connLabel == null) return;
         _connLabel.Text = t;
         _connLabel.TextColor = ok == true ? UIColor.SystemGreen : ok == false ? UIColor.SystemRed : UIColor.SecondaryLabel;
     });
-
     void RefreshLib() => InvokeOnMainThread(() =>
     {
         if (_libHead != null) _libHead.Text = $"Library ({_lib.Count})";
-        if (_sendBtn != null)
-        {
-            int q = _lib.Count(x => x.Queued);
-            _sendBtn.SetTitle(q > 0 ? $"Send queue ({q})" : "Send queue", UIControlState.Normal);
-        }
-
-        // Ajustar dinámicamente la altura de la tabla dentro del scroll
-        if (_tableHeightConstraint != null)
-        {
-            nfloat totalHeight = Math.Max(64, _lib.Count * 64);
-            _tableHeightConstraint.Constant = totalHeight;
-        }
-
+        if (_sendBtn != null) { int q = _lib.Count(x => x.Queued); _sendBtn.SetTitle(q > 0 ? $"Send queue ({q})" : "Send queue", UIControlState.Normal); }
         _table?.ReloadData();
     });
-
     static string Short(string s) => s.Length > 140 ? s[..140] : s;
     static string SizeStr(long n) => n >= 1L << 30 ? $"{n / 1073741824.0:0.0} GB" : $"{n / 1048576.0:0.0} MB";
 
-    // ---------- file picking (UIDocumentPicker, copy into tmp) ----------
+    // ---------- file picking CORREGIDO ----------
     void PickFlow()
     {
         var types = new[] { UTTypes.Data };
         var picker = new UIDocumentPickerViewController(types, true);
         picker.AllowsMultipleSelection = true;
 
-        // CORRECCIÓN: DidPickDocumentAtUrls soporta múltiple selección
         picker.DidPickDocumentAtUrls += async (_, e) =>
         {
             var urls = e.Urls;
             if (urls == null || urls.Length == 0) return;
 
-            Say($"reading {urls.Length} file(s)…");
+            Say($"Reading {urls.Length} file(s)…");
             int n = 0;
             foreach (var url in urls)
             {
@@ -239,46 +203,50 @@ public sealed class MainViewController : UIViewController
 
     async Task<bool> AddUrlAsync(NSUrl url)
     {
+        bool access = false;
         try
         {
-            bool access = url.StartAccessingSecurityScopedResource();
-            try
+            access = url.StartAccessingSecurityScopedResource();
+            string name = url.LastPathComponent ?? "game.pkg";
+            string tmp = Path.Combine(Path.GetTempPath(), name);
+
+            if (!File.Exists(tmp))
             {
-                string name = url.LastPathComponent ?? "game.pkg";
-                string tmp = Path.Combine(Path.GetTempPath(), name);
-                if (!File.Exists(tmp))
+                await Task.Run(() =>
                 {
                     using var src = File.OpenRead(url.Path!);
                     using var dst = File.Create(tmp);
-                    await src.CopyToAsync(dst);
-                }
-                string low = name.ToLowerInvariant();
-                string fmt = low.EndsWith(".exfat") ? "exfat" : low.EndsWith(".ffpfsc") ? "ffpfsc"
-                    : low.EndsWith(".ffpkg") ? "ffpkg" : low.EndsWith(".pfs") ? "pfs" : "pkg";
-                PkgInfo? pkg = null;
-                try { pkg = GameReader.Read(tmp); }
-                catch (Exception ex) { Say("parse: " + Short(ex.Message)); return false; }
-                lock (_lib)
-                {
-                    if (_lib.Any(x => x.Path == tmp)) return false;
-                    _lib.Add(new LibItem
-                    {
-                        Path = tmp,
-                        Format = fmt,
-                        FileName = name,
-                        Title = pkg?.Title is { Length: > 0 } t ? t : Path.GetFileNameWithoutExtension(name),
-                        TitleId = pkg?.TitleId is { Length: > 0 } i ? i : GameReader.TitleIdFromName(name),
-                        Size = pkg != null && pkg.PackageSize > 0 ? pkg.PackageSize : new FileInfo(tmp).Length,
-                        Platform = pkg?.Platform ?? "",
-                        Pkg = pkg,
-                        Queued = true,
-                    });
-                }
-                return true;
+                    src.CopyTo(dst);
+                });
             }
-            finally { if (access) url.StopAccessingSecurityScopedResource(); }
+
+            string low = name.ToLowerInvariant();
+            string fmt = low.EndsWith(".exfat") ? "exfat" : low.EndsWith(".ffpfsc") ? "ffpfsc"
+                : low.EndsWith(".ffpkg") ? "ffpkg" : low.EndsWith(".pfs") ? "pfs" : "pkg";
+
+            PkgInfo? pkg = null;
+            try { pkg = GameReader.Read(tmp); }
+            catch (Exception ex) { Say("parse: " + Short(ex.Message)); return false; }
+
+            lock (_lib)
+            {
+                if (_lib.Any(x => x.Path == tmp)) return false;
+                _lib.Add(new LibItem
+                {
+                    Path = tmp, Format = fmt, FileName = name,
+                    Title = pkg?.Title is { Length: > 0 } t ? t : Path.GetFileNameWithoutExtension(name),
+                    TitleId = pkg?.TitleId is { Length: > 0 } i ? i : GameReader.TitleIdFromName(name),
+                    Size = pkg != null && pkg.PackageSize > 0 ? pkg.PackageSize : new FileInfo(tmp).Length,
+                    Platform = pkg?.Platform ?? "", Pkg = pkg, Queued = true,
+                });
+            }
+            return true;
         }
         catch (Exception ex) { Say("add failed: " + Short(ex.Message)); return false; }
+        finally
+        {
+            if (access) url.StopAccessingSecurityScopedResource();
+        }
     }
 
     // ---------- bundled ELF ----------
