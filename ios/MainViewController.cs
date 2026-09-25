@@ -22,6 +22,7 @@ public sealed class MainViewController : UIViewController
         public PkgInfo? Pkg;
         public bool Queued = true;
         public string State = "";
+        public NSUrl? SecurityScopedUrl; // Guardado para mantener permisos de lectura activa
     }
 
     readonly List<LibItem> _lib = new();
@@ -49,7 +50,7 @@ public sealed class MainViewController : UIViewController
         Title = "PKG Sender";
         View!.BackgroundColor = UIColor.SystemBackground;
 
-        // Configuración del ScrollView con scroll vertical y horizontal
+        // Configuración del ScrollView
         var scroll = new UIScrollView
         {
             TranslatesAutoresizingMaskIntoConstraints = false,
@@ -70,7 +71,6 @@ public sealed class MainViewController : UIViewController
         };
         scroll.AddSubview(stack);
 
-        // Anclar ScrollView a los bordes de la pantalla
         NSLayoutConstraint.ActivateConstraints(new[]
         {
             scroll.TopAnchor.ConstraintEqualTo(View.SafeAreaLayoutGuide.TopAnchor),
@@ -79,7 +79,6 @@ public sealed class MainViewController : UIViewController
             scroll.TrailingAnchor.ConstraintEqualTo(View.SafeAreaLayoutGuide.TrailingAnchor),
         });
 
-        // Configuración de Auto-Layout usando LayoutGuides
         NSLayoutConstraint.ActivateConstraints(new[]
         {
             stack.TopAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.TopAnchor, 12),
@@ -268,17 +267,18 @@ public sealed class MainViewController : UIViewController
 
         var picker = new UIDocumentPickerViewController(allowedTypes, UIDocumentPickerMode.Open)
         {
-            AllowsMultipleSelection = true
+            AllowsMultipleSelection = true,
+            ShouldOpenInPlace = true // Lee el archivo original in-situ sin duplicarlo en almacenamiento local
         };
 
         picker.DidPickDocumentAtUrls += (sender, e) =>
         {
-            // Oculta el modal de inmediato para desbloquear la vista principal
+            // 1. Cierre inmediato del selector de archivos
             picker.DismissViewController(true, async () =>
             {
                 if (e.Urls == null || e.Urls.Length == 0) return;
 
-                Say($"Leyendo {e.Urls.Length} archivo(s)…");
+                Say($"Agregando {e.Urls.Length} archivo(s)…");
                 int n = 0;
 
                 foreach (var url in e.Urls)
@@ -286,7 +286,7 @@ public sealed class MainViewController : UIViewController
                     if (await AddUrlAsync(url)) n++;
                 }
                 RefreshLib();
-                Say(n > 0 ? $"{n} agregado(s) — marca para enviar" : "No se pudo agregar el archivo");
+                Say(n > 0 ? $"{n} agregado(s) — listo para enviar" : "No se pudo agregar el archivo");
             });
         };
 
@@ -303,53 +303,58 @@ public sealed class MainViewController : UIViewController
         bool access = false;
         try
         {
+            // Solicitar permisos de acceso directo en la Sandbox de iOS
             access = url.StartAccessingSecurityScopedResource();
             
+            string filePath = url.Path ?? "";
             string name = url.LastPathComponent ?? "game.pkg";
-            string tmp = Path.Combine(Path.GetTempPath(), name);
 
-            // Copia de archivo fuera del hilo UI
-            await Task.Run(() =>
+            if (!File.Exists(filePath))
             {
-                if (!File.Exists(tmp))
-                {
-                    Say($"Copiando {name}…");
-                    using var data = NSData.FromUrl(url, NSDataReadingOptions.Uncached, out NSError? err);
-                    if (err != null || data == null)
-                        throw new Exception(err?.LocalizedDescription ?? "Error al leer datos en iOS");
-
-                    data.Save(tmp, false);
-                }
-            });
+                Say($"Ruta no accesible: {name}");
+                if (access) url.StopAccessingSecurityScopedResource();
+                return false;
+            }
 
             string low = name.ToLowerInvariant();
             string fmt = low.EndsWith(".exfat") ? "exfat" : low.EndsWith(".ffpfsc") ? "ffpfsc"
                 : low.EndsWith(".ffpkg") ? "ffpkg" : low.EndsWith(".pfs") ? "pfs" : "pkg";
 
             PkgInfo? pkg = null;
-            try 
-            { 
-                await Task.Run(() => { pkg = GameReader.Read(tmp); });
-            }
-            catch (Exception ex) 
-            { 
-                Say("Parse warning: " + Short(ex.Message)); 
-            }
+
+            // Procesamiento en segundo plano de metadatos (lectura streaming rápida del header)
+            await Task.Run(() =>
+            {
+                try 
+                { 
+                    pkg = GameReader.Read(filePath);
+                }
+                catch (Exception ex) 
+                { 
+                    Say("Warning metadatos: " + Short(ex.Message)); 
+                }
+            });
 
             lock (_lib)
             {
-                if (_lib.Any(x => x.Path == tmp)) return false;
+                if (_lib.Any(x => x.Path == filePath))
+                {
+                    if (access) url.StopAccessingSecurityScopedResource();
+                    return false;
+                }
+
                 _lib.Add(new LibItem
                 {
-                    Path = tmp,
+                    Path = filePath,
                     Format = fmt,
                     FileName = name,
                     Title = pkg?.Title is { Length: > 0 } t ? t : Path.GetFileNameWithoutExtension(name),
                     TitleId = pkg?.TitleId is { Length: > 0 } i ? i : GameReader.TitleIdFromName(name),
-                    Size = pkg != null && pkg.PackageSize > 0 ? pkg.PackageSize : new FileInfo(tmp).Length,
+                    Size = pkg != null && pkg.PackageSize > 0 ? pkg.PackageSize : new FileInfo(filePath).Length,
                     Platform = pkg?.Platform ?? "",
                     Pkg = pkg,
                     Queued = true,
+                    SecurityScopedUrl = access ? url : null // Retener permisos para cuando se inicie la transmisión
                 });
             }
             return true;
@@ -357,11 +362,8 @@ public sealed class MainViewController : UIViewController
         catch (Exception ex)
         {
             Say("Error al agregar: " + Short(ex.Message));
-            return false;
-        }
-        finally
-        {
             if (access) url.StopAccessingSecurityScopedResource();
+            return false;
         }
     }
 
@@ -498,7 +500,20 @@ public sealed class MainViewController : UIViewController
         finally
         {
             _busy = false;
-            lock (_lib) foreach (var q in queue) if (q.State.StartsWith("done")) q.Queued = false;
+            lock (_lib)
+            {
+                foreach (var q in queue)
+                {
+                    if (q.State.StartsWith("done")) q.Queued = false;
+                    
+                    // Liberar recursos de seguridad al terminar
+                    if (q.SecurityScopedUrl != null)
+                    {
+                        q.SecurityScopedUrl.StopAccessingSecurityScopedResource();
+                        q.SecurityScopedUrl = null;
+                    }
+                }
+            }
             RefreshLib();
         }
     }
