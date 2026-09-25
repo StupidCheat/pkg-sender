@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleDisplayName</key><string>PKG Sender</string>
-  <key>CFBundleIdentifier</key><string>com.loopayeh.pkgsender</string>
+  <key>CFBundleIdentifier</key><string>com.loopayehh.pkgsender</string>
   <key>LSRequiresIPhoneOS</key><true/>
   <key>UIDeviceFamily</key><array><integer>1</integer><integer>2</integer></array>
   <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>
