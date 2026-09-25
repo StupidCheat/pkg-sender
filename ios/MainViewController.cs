@@ -50,12 +50,14 @@ public sealed class MainViewController : UIViewController
         Title = "PKG Sender";
         View!.BackgroundColor = UIColor.SystemBackground;
 
+        // ScrollView
         var scroll = new UIScrollView
         {
             TranslatesAutoresizingMaskIntoConstraints = false,
         };
         View.AddSubview(scroll);
 
+        // Stack principal
         var stack = new UIStackView
         {
             Axis = UILayoutConstraintAxis.Vertical,
@@ -66,6 +68,7 @@ public sealed class MainViewController : UIViewController
         };
         scroll.AddSubview(stack);
 
+        // Constraints del ScrollView - ocupar toda la pantalla
         NSLayoutConstraint.ActivateConstraints(new[]
         {
             scroll.TopAnchor.ConstraintEqualTo(View.SafeAreaLayoutGuide.TopAnchor),
@@ -74,12 +77,16 @@ public sealed class MainViewController : UIViewController
             scroll.TrailingAnchor.ConstraintEqualTo(View.SafeAreaLayoutGuide.TrailingAnchor),
         });
 
+        // Constraints del Stack - dentro del scroll con márgenes
         NSLayoutConstraint.ActivateConstraints(new[]
         {
+            // Top, Leading, Trailing, Bottom del stack
             stack.TopAnchor.ConstraintEqualTo(scroll.TopAnchor, 12),
-            stack.BottomAnchor.ConstraintEqualTo(scroll.BottomAnchor, -12),
             stack.LeadingAnchor.ConstraintEqualTo(scroll.LeadingAnchor, 16),
             stack.TrailingAnchor.ConstraintEqualTo(scroll.TrailingAnchor, -16),
+            stack.BottomAnchor.ConstraintEqualTo(scroll.BottomAnchor, -12),
+            
+            // Ancho del stack = ancho del scroll - márgenes
             stack.WidthAnchor.ConstraintEqualTo(scroll.WidthAnchor, -32),
         });
 
