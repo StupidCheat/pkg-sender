@@ -50,14 +50,17 @@ public sealed class MainViewController : UIViewController
         Title = "PKG Sender";
         View!.BackgroundColor = UIColor.SystemBackground;
 
-        // ScrollView
+        // 1. Configuración del ScrollView para permitir scroll Vertical y Horizontal
         var scroll = new UIScrollView
         {
             TranslatesAutoresizingMaskIntoConstraints = false,
+            AlwaysBounceVertical = true,
+            AlwaysBounceHorizontal = true, // Permite scroll a la izquierda y derecha
+            ShowsHorizontalScrollIndicator = true,
+            ShowsVerticalScrollIndicator = true,
         };
         View.AddSubview(scroll);
 
-        // Stack principal
         var stack = new UIStackView
         {
             Axis = UILayoutConstraintAxis.Vertical,
@@ -68,7 +71,7 @@ public sealed class MainViewController : UIViewController
         };
         scroll.AddSubview(stack);
 
-        // Constraints del ScrollView - ocupar toda la pantalla
+        // Anclar ScrollView a la pantalla
         NSLayoutConstraint.ActivateConstraints(new[]
         {
             scroll.TopAnchor.ConstraintEqualTo(View.SafeAreaLayoutGuide.TopAnchor),
@@ -77,17 +80,17 @@ public sealed class MainViewController : UIViewController
             scroll.TrailingAnchor.ConstraintEqualTo(View.SafeAreaLayoutGuide.TrailingAnchor),
         });
 
-        // Constraints del Stack - dentro del scroll con márgenes
+        // 2. Corregido el Auto-Layout del StackView dentro del ScrollView:
+        // Usamos ContentLayoutGuide para definir el área de scroll y FrameLayoutGuide para calcular anchos mínimos/dinámicos.
         NSLayoutConstraint.ActivateConstraints(new[]
         {
-            // Top, Leading, Trailing, Bottom del stack
-            stack.TopAnchor.ConstraintEqualTo(scroll.TopAnchor, 12),
-            stack.LeadingAnchor.ConstraintEqualTo(scroll.LeadingAnchor, 16),
-            stack.TrailingAnchor.ConstraintEqualTo(scroll.TrailingAnchor, -16),
-            stack.BottomAnchor.ConstraintEqualTo(scroll.BottomAnchor, -12),
+            stack.TopAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.TopAnchor, 12),
+            stack.BottomAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.BottomAnchor, -12),
+            stack.LeadingAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.LeadingAnchor, 16),
+            stack.TrailingAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.TrailingAnchor, -16),
             
-            // Ancho del stack = ancho del scroll - márgenes
-            stack.WidthAnchor.ConstraintEqualTo(scroll.WidthAnchor, -32),
+            // Garantiza que el ancho sea como mínimo el de la pantalla (menos márgenes), pero puede crecer hacia la derecha si es necesario.
+            stack.WidthAnchor.ConstraintGreaterThanOrEqualTo(scroll.FrameLayoutGuide.WidthAnchor, -32),
         });
 
         // CARD 1: HERO
