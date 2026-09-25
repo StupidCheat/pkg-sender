@@ -50,14 +50,12 @@ public sealed class MainViewController : UIViewController
         Title = "PKG Sender";
         View!.BackgroundColor = UIColor.SystemBackground;
 
-        // ScrollView contenedor
         var scroll = new UIScrollView
         {
             TranslatesAutoresizingMaskIntoConstraints = false,
         };
         View.AddSubview(scroll);
 
-        // Stack principal
         var stack = new UIStackView
         {
             Axis = UILayoutConstraintAxis.Vertical,
@@ -68,7 +66,6 @@ public sealed class MainViewController : UIViewController
         };
         scroll.AddSubview(stack);
 
-        // Constraints ScrollView
         NSLayoutConstraint.ActivateConstraints(new[]
         {
             scroll.TopAnchor.ConstraintEqualTo(View.SafeAreaLayoutGuide.TopAnchor),
@@ -77,7 +74,6 @@ public sealed class MainViewController : UIViewController
             scroll.TrailingAnchor.ConstraintEqualTo(View.SafeAreaLayoutGuide.TrailingAnchor),
         });
 
-        // Constraints Stack (ancho = screen - márgenes)
         NSLayoutConstraint.ActivateConstraints(new[]
         {
             stack.TopAnchor.ConstraintEqualTo(scroll.TopAnchor, 12),
@@ -87,9 +83,8 @@ public sealed class MainViewController : UIViewController
             stack.WidthAnchor.ConstraintEqualTo(scroll.WidthAnchor, -32),
         });
 
-        // ==================== CARD 1: HERO ====================
+        // CARD 1: HERO
         var hero = Card();
-        
         hero.AddArrangedSubview(MkLabel("PKG Sender", 20, true));
         hero.AddArrangedSubview(MkLabel("PS4 / PS5 over LAN", 13, false, UIColor.SecondaryLabel));
         
@@ -117,10 +112,9 @@ public sealed class MainViewController : UIViewController
 
         _connLabel = MkLabel("not tested", 12, true, UIColor.SecondaryLabel);
         hero.AddArrangedSubview(_connLabel);
-        
         stack.AddArrangedSubview(hero);
 
-        // ==================== CARD 2: ELF ====================
+        // CARD 2: ELF
         var elf = Card();
         elf.AddArrangedSubview(MkLabel("pkg-receiver.elf (PS5 only)", 14, true));
         
@@ -133,10 +127,9 @@ public sealed class MainViewController : UIViewController
         elfRow.AddArrangedSubview(MkBtn("Save", async () => await ExportElfAsync(false), filled: false));
         elfRow.AddArrangedSubview(MkBtn("Share", async () => await ExportElfAsync(true), filled: false));
         elf.AddArrangedSubview(elfRow);
-        
         stack.AddArrangedSubview(elf);
 
-        // ==================== CARD 3: LIBRARY ====================
+        // CARD 3: LIBRARY
         var lib = Card();
         
         var libHeader = new UIStackView
@@ -160,10 +153,9 @@ public sealed class MainViewController : UIViewController
         _table.HeightAnchor.ConstraintEqualTo(240).Active = true;
         _table.Source = new LibSource(this);
         lib.AddArrangedSubview(_table);
-        
         stack.AddArrangedSubview(lib);
 
-        // ==================== CARD 4: SEND ====================
+        // CARD 4: SEND
         var send = Card();
         
         _sendBtn = MkBtn("Send queue", async () => await SendQueueAsync(), filled: true);
@@ -185,8 +177,6 @@ public sealed class MainViewController : UIViewController
         RefreshLib();
     }
 
-    // ==================== UI HELPERS ====================
-    
     static UIStackView Card()
     {
         var card = new UIStackView
@@ -209,7 +199,7 @@ public sealed class MainViewController : UIViewController
             Text = text,
             Font = bold ? UIFont.BoldSystemFontOfSize(size) : UIFont.SystemFontOfSize(size),
             LineBreakMode = UILineBreakMode.TailTruncation,
-            NumberOfLines = 0,
+            Lines = 0,
         };
         if (color != null) label.TextColor = color;
         return label;
@@ -234,7 +224,6 @@ public sealed class MainViewController : UIViewController
             btn.SetTitleColor(UIColor.SystemBlue, UIControlState.Normal);
         }
 
-        btn.ContentEdgeInsets = new UIEdgeInsets(8, 12, 8, 12);
         btn.TouchUpInside += (_, _) => action();
         return btn;
     }
@@ -262,8 +251,6 @@ public sealed class MainViewController : UIViewController
     static string Short(string s) => s.Length > 140 ? s[..140] : s;
     static string SizeStr(long n) => n >= 1L << 30 ? $"{n / 1073741824.0:0.0} GB" : $"{n / 1048576.0:0.0} MB";
 
-    // ==================== FILE PICKING ====================
-    
     void PickFlow()
     {
         var types = new[] { UTTypes.Data };
@@ -322,8 +309,6 @@ public sealed class MainViewController : UIViewController
         finally { if (access) url.StopAccessingSecurityScopedResource(); }
     }
 
-    // ==================== ELF ====================
-    
     async Task ExportElfAsync(bool share)
     {
         try
@@ -341,8 +326,6 @@ public sealed class MainViewController : UIViewController
         catch (Exception ex) { Say("ELF failed: " + Short(ex.Message)); }
     }
 
-    // ==================== TEST / DETECT ====================
-    
     string PsIp => (_ipField?.Text ?? "").Trim();
 
     async Task TestAsync()
@@ -428,8 +411,6 @@ public sealed class MainViewController : UIViewController
         return NetDiscovery.BestPcIpFor(nets, psIp) ?? "0.0.0.0";
     }
 
-    // ==================== SEND QUEUE ====================
-    
     async Task SendQueueAsync()
     {
         if (_busy) return;
@@ -547,8 +528,6 @@ public sealed class MainViewController : UIViewController
         return false;
     }
 
-    // ==================== ABOUT / GUIDE ====================
-    
     void ShowAbout()
     {
         var a = UIAlertController.Create("PKG Sender (iOS) • by Loopayeh",
@@ -567,8 +546,6 @@ public sealed class MainViewController : UIViewController
         PresentViewController(a, true, null);
     }
 
-    // ==================== TABLE ====================
-    
     sealed class LibSource : UITableViewSource
     {
         readonly MainViewController _v;
@@ -579,8 +556,14 @@ public sealed class MainViewController : UIViewController
             LibItem it;
             lock (_v._lib) it = _v._lib[p.Row];
             var c = t.DequeueReusableCell("lib") ?? new UITableViewCell(UITableViewCellStyle.Subtitle, "lib");
+            
             c.TextLabel!.Text = $"{(it.Queued ? "☑ " : "☐ ")}{it.Title}";
+            c.TextLabel.Font = UIFont.SystemFontOfSize(14);
+            
             c.DetailTextLabel!.Text = $"{it.Format.ToUpperInvariant()} • {it.TitleId} • {SizeStr(it.Size)} • {it.State}";
+            c.DetailTextLabel.Font = UIFont.SystemFontOfSize(12);
+            c.DetailTextLabel.TextColor = UIColor.SecondaryLabel;
+            
             c.Accessory = UITableViewCellAccessory.DisclosureIndicator;
             return c;
         }
