@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using Foundation;
-using LoopDPI.Core;
+using LoopDPI.Core; // Asegúrate de tener referenciada tu librería
 using UIKit;
 
 namespace PkgSender.iOS;
@@ -98,6 +98,7 @@ public sealed class MainViewController : UIViewController
             BorderStyle = UITextBorderStyle.RoundedRect,
             KeyboardType = UIKeyboardType.NumbersAndPunctuation,
             AutocorrectionType = UITextAutocorrectionType.No,
+            TranslatesAutoresizingMaskIntoConstraints = false // SOLUCIÓN 1: Prevenir crash de AutoLayout
         };
         _ipField.HeightAnchor.ConstraintEqualTo(40).Active = true;
         hero.AddArrangedSubview(_ipField);
@@ -162,6 +163,7 @@ public sealed class MainViewController : UIViewController
         var send = Card();
         
         _sendBtn = MkBtn("Send queue", async () => await SendQueueAsync(), filled: true);
+        _sendBtn.TranslatesAutoresizingMaskIntoConstraints = false; // SOLUCIÓN 1: Prevenir crash de AutoLayout
         _sendBtn.HeightAnchor.ConstraintEqualTo(44).Active = true;
         send.AddArrangedSubview(_sendBtn);
 
@@ -258,7 +260,8 @@ public sealed class MainViewController : UIViewController
     {
         string[] allowedTypes = new[] { "public.item", "public.data", "public.content" };
 
-        var picker = new UIDocumentPickerViewController(allowedTypes, UIDocumentPickerMode.Open, false)
+        // SOLUCIÓN 2: Eliminado el 'false' que rompía la compilación en iOS
+        var picker = new UIDocumentPickerViewController(allowedTypes, UIDocumentPickerMode.Open)
         {
             AllowsMultipleSelection = true
         };
@@ -464,7 +467,12 @@ public sealed class MainViewController : UIViewController
         List<LibItem> queue;
         lock (_lib) queue = _lib.Where(x => x.Queued).ToList();
         if (queue.Count == 0) { Say("queue is empty — tick some games"); return; }
+        
         _busy = true;
+
+        // SOLUCIÓN 3: Evitar que el iPhone se apague mientras se envían PKGs
+        InvokeOnMainThread(() => UIApplication.SharedApplication.IdleTimerDisabled = true);
+
         try
         {
             string pcIp = await Task.Run(() => PhoneIpFor(psIp));
@@ -486,6 +494,10 @@ public sealed class MainViewController : UIViewController
         finally
         {
             _busy = false;
+
+            // SOLUCIÓN 3 (Limpieza): Restaurar que la pantalla se apague normalmente
+            InvokeOnMainThread(() => UIApplication.SharedApplication.IdleTimerDisabled = false);
+
             lock (_lib)
             {
                 foreach (var q in queue)
