@@ -98,9 +98,8 @@ public sealed class MainViewController : UIViewController
             // Magia del Scroll Horizontal:
             // 1. Ocupa como mínimo el ancho de la pantalla
             stack.WidthAnchor.ConstraintGreaterThanOrEqualTo(scroll.FrameLayoutGuide.WidthAnchor, -32),
-            // 2. PERO nunca será menor a 420 puntos de ancho. Esto obliga al iPhone a habilitar
-            // el scroll de derecha a izquierda en pantallas pequeñas, evitando que todo se aplaste.
-            stack.WidthAnchor.ConstraintGreaterThanOrEqualToConstant(420)
+            // 2. PERO nunca será menor a 420 puntos de ancho. 
+            stack.WidthAnchor.ConstraintGreaterThanOrEqualTo(420f)
         });
 
         // hero: title + IP + Test + Detect
