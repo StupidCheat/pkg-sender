@@ -22,7 +22,7 @@ public sealed class MainViewController : UIViewController
         public PkgInfo? Pkg;
         public bool Queued = true;
         public string State = "";
-        public NSUrl? SecurityScopedUrl; // Guardado para mantener permisos de lectura activa
+        public NSUrl? SecurityScopedUrl;
     }
 
     readonly List<LibItem> _lib = new();
@@ -50,7 +50,6 @@ public sealed class MainViewController : UIViewController
         Title = "PKG Sender";
         View!.BackgroundColor = UIColor.SystemBackground;
 
-        // Configuración del ScrollView
         var scroll = new UIScrollView
         {
             TranslatesAutoresizingMaskIntoConstraints = false,
@@ -265,15 +264,15 @@ public sealed class MainViewController : UIViewController
             "public.content" 
         };
 
-        var picker = new UIDocumentPickerViewController(allowedTypes, UIDocumentPickerMode.Open)
+        // En .NET for iOS, el parámetro `asCopy: false` activa la lectura in-situ sin duplicar archivos
+        var picker = new UIDocumentPickerViewController(allowedTypes, UIDocumentPickerMode.Open, false)
         {
-            AllowsMultipleSelection = true,
-            ShouldOpenInPlace = true // Lee el archivo original in-situ sin duplicarlo en almacenamiento local
+            AllowsMultipleSelection = true
         };
 
         picker.DidPickDocumentAtUrls += (sender, e) =>
         {
-            // 1. Cierre inmediato del selector de archivos
+            // Cierre inmediato de la interfaz modal para desbloquear la vista principal
             picker.DismissViewController(true, async () =>
             {
                 if (e.Urls == null || e.Urls.Length == 0) return;
@@ -303,7 +302,7 @@ public sealed class MainViewController : UIViewController
         bool access = false;
         try
         {
-            // Solicitar permisos de acceso directo en la Sandbox de iOS
+            // Solicitar acceso temporal al archivo original en la Sandbox
             access = url.StartAccessingSecurityScopedResource();
             
             string filePath = url.Path ?? "";
@@ -322,7 +321,7 @@ public sealed class MainViewController : UIViewController
 
             PkgInfo? pkg = null;
 
-            // Procesamiento en segundo plano de metadatos (lectura streaming rápida del header)
+            // Procesar la lectura de encabezados en segundo plano
             await Task.Run(() =>
             {
                 try 
@@ -354,7 +353,7 @@ public sealed class MainViewController : UIViewController
                     Platform = pkg?.Platform ?? "",
                     Pkg = pkg,
                     Queued = true,
-                    SecurityScopedUrl = access ? url : null // Retener permisos para cuando se inicie la transmisión
+                    SecurityScopedUrl = access ? url : null
                 });
             }
             return true;
@@ -506,7 +505,6 @@ public sealed class MainViewController : UIViewController
                 {
                     if (q.State.StartsWith("done")) q.Queued = false;
                     
-                    // Liberar recursos de seguridad al terminar
                     if (q.SecurityScopedUrl != null)
                     {
                         q.SecurityScopedUrl.StopAccessingSecurityScopedResource();
