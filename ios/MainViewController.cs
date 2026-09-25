@@ -17,6 +17,11 @@ public sealed class MainViewController : UIViewController
 {
     const int ServerPort = 9898;
 
+    // UTI propio para .pkg: evita que iOS lo trate como bundle/installer package
+    // y se quede "colgado" al tocar Abrir en el picker. Debe coincidir con el
+    // UTImportedTypeDeclarations de Info.plist (ver nota al final del archivo).
+    const string PkgUtiIdentifier = "com.loopayeh.pkgsender.pkg";
+
     sealed class LibItem
     {
         public string Path = "";
@@ -29,7 +34,7 @@ public sealed class MainViewController : UIViewController
         public PkgInfo? Pkg;
         public bool Queued = true;
         public string State = "";
-        
+
         // VITAL: Guardamos la URL para mantener el permiso de lectura en iOS
         public NSUrl? SourceUrl;
         public bool HasAccess;
@@ -48,6 +53,11 @@ public sealed class MainViewController : UIViewController
     UITableView? _table;
     UILabel? _libHead;
 
+    // VITAL: mantener referencia fuerte al picker. Si se libera antes de que
+    // el usuario termine de interactuar con el sheet, el callback
+    // DidPickDocumentAtUrls puede no dispararse nunca (síntoma: "no pasa nada").
+    UIDocumentPickerViewController? _picker;
+
     string SavedIp
     {
         get => NSUserDefaults.StandardUserDefaults.StringForKey("psip") ?? "192.168.1.";
@@ -63,23 +73,23 @@ public sealed class MainViewController : UIViewController
         // VITAL: Evita que la pantalla se bloquee y corte la transferencia HTTP
         UIApplication.SharedApplication.IdleTimerDisabled = true;
 
-        var scroll = new UIScrollView 
-        { 
+        var scroll = new UIScrollView
+        {
             TranslatesAutoresizingMaskIntoConstraints = false,
             ShowsHorizontalScrollIndicator = true // Muestra la barra de scroll de izquierda a derecha
         };
-        
+
         var stack = new UIStackView
         {
             Axis = UILayoutConstraintAxis.Vertical,
-            Spacing = 16, 
-            Alignment = UIStackViewAlignment.Fill, 
+            Spacing = 16,
+            Alignment = UIStackViewAlignment.Fill,
             TranslatesAutoresizingMaskIntoConstraints = false,
         };
-        
+
         View.AddSubview(scroll);
         scroll.AddSubview(stack);
-        
+
         // REGLAS PARA ACTIVAR EL SCROLL HORIZONTAL
         NSLayoutConstraint.ActivateConstraints(new[]
         {
@@ -88,17 +98,17 @@ public sealed class MainViewController : UIViewController
             scroll.LeadingAnchor.ConstraintEqualTo(View.SafeAreaLayoutGuide.LeadingAnchor),
             scroll.TrailingAnchor.ConstraintEqualTo(View.SafeAreaLayoutGuide.TrailingAnchor),
             scroll.BottomAnchor.ConstraintEqualTo(View.SafeAreaLayoutGuide.BottomAnchor),
-            
+
             // Definir el contenido interno del scroll
             stack.TopAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.TopAnchor, 16),
             stack.BottomAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.BottomAnchor, -16),
             stack.LeadingAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.LeadingAnchor, 16),
             stack.TrailingAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.TrailingAnchor, -16),
-            
+
             // Magia del Scroll Horizontal:
             // 1. Ocupa como mínimo el ancho de la pantalla
             stack.WidthAnchor.ConstraintGreaterThanOrEqualTo(scroll.FrameLayoutGuide.WidthAnchor, -32),
-            // 2. PERO nunca será menor a 420 puntos de ancho. 
+            // 2. PERO nunca será menor a 420 puntos de ancho.
             stack.WidthAnchor.ConstraintGreaterThanOrEqualTo(420f)
         });
 
@@ -143,20 +153,20 @@ public sealed class MainViewController : UIViewController
 
         _table = new UITableView { RowHeight = 64, ScrollEnabled = false, TranslatesAutoresizingMaskIntoConstraints = false };
         _table.HeightAnchor.ConstraintEqualTo(320).Active = true;
-        _table.Layer.CornerRadius = 12; 
+        _table.Layer.CornerRadius = 12;
         _table.Source = new LibSource(this);
         stack.AddArrangedSubview(_table);
 
         _sendBtn = MkBtn("Send queue", async () => await SendQueueAsync(), filled: true);
-        _sendBtn.HeightAnchor.ConstraintEqualTo(50).Active = true; 
+        _sendBtn.HeightAnchor.ConstraintEqualTo(50).Active = true;
         stack.AddArrangedSubview(_sendBtn);
-        
+
         _prog = new UIProgressView(UIProgressViewStyle.Default);
         stack.AddArrangedSubview(_prog);
-        
+
         _statusLabel = MkLabel("add a PKG, tick it, then Send", 13, false, UIColor.SecondaryLabel);
         _statusLabel.Lines = 3;
-        _statusLabel.TextAlignment = UITextAlignment.Center; 
+        _statusLabel.TextAlignment = UITextAlignment.Center;
         stack.AddArrangedSubview(_statusLabel);
 
         NavigationItem.RightBarButtonItem = new UIBarButtonItem("About", UIBarButtonItemStyle.Plain,
@@ -210,16 +220,28 @@ public sealed class MainViewController : UIViewController
     // ---------- file picking (Direct Access, NO COPYING) ----------
     void PickFlow()
     {
-        var types = new[] { UTTypes.Data, UTTypes.Item };
-        
+        // Usamos nuestro propio UTI para .pkg (declarado en Info.plist) para
+        // que iOS no lo trate como "installer package" / bundle. Si por lo
+        // que sea el UTI custom no resuelve (falta el Info.plist o build
+        // stripping), caemos a los genéricos como red de seguridad.
+        var pkgType = UTType.CreateFromIdentifier(PkgUtiIdentifier);
+        var types = pkgType != null
+            ? new[] { pkgType, UTTypes.Data, UTTypes.Item }
+            : new[] { UTTypes.Data, UTTypes.Item };
+
         // FALSO (false) es VITAL aquí. Evita que iOS intente hacer una copia en caché del archivo.
         var picker = new UIDocumentPickerViewController(types, asCopy: false)
         {
             AllowsMultipleSelection = true
         };
 
+        // VITAL: retener el picker como campo, no como variable local, para
+        // que no se libere mientras el sheet sigue abierto.
+        _picker = picker;
+
         picker.DidPickDocumentAtUrls += async (sender, e) =>
         {
+            Console.WriteLine($"[PickFlow] callback disparado, {e.Urls.Length} url(s)");
             var urls = e.Urls;
             Say($"leyendo {urls.Length} archivo(s)…");
             int n = 0;
@@ -229,6 +251,14 @@ public sealed class MainViewController : UIViewController
             }
             RefreshLib();
             Say(n > 0 ? $"{n} agregados — tick to queue" : "nothing added");
+            _picker = null;
+        };
+
+        picker.WasCancelled += (sender, e) =>
+        {
+            Console.WriteLine("[PickFlow] picker cancelado por el usuario");
+            Say("selección cancelada");
+            _picker = null;
         };
 
         PresentViewController(picker, true, null);
@@ -238,23 +268,24 @@ public sealed class MainViewController : UIViewController
     {
         try
         {
-            // Pedimos el permiso y NO LO CERRAMOS. 
+            // Pedimos el permiso y NO LO CERRAMOS.
             // Lo mantendremos abierto para que el servidor pueda streamearlo sin copiar a tmp.
             bool access = url.StartAccessingSecurityScopedResource();
-            
+
             string name = url.LastPathComponent ?? "game.pkg";
             string path = url.Path!;
-            
+
             string low = name.ToLowerInvariant();
             string fmt = low.EndsWith(".exfat") ? "exfat" : low.EndsWith(".ffpfsc") ? "ffpfsc"
                 : low.EndsWith(".ffpkg") ? "ffpkg" : low.EndsWith(".pfs") ? "pfs" : "pkg";
-                
+
             PkgInfo? pkg = null;
             try { pkg = GameReader.Read(path); }
-            catch (Exception ex) { 
-                Say("parse error: " + Short(ex.Message)); 
+            catch (Exception ex)
+            {
+                Say("parse error: " + Short(ex.Message));
                 if (access) url.StopAccessingSecurityScopedResource();
-                return false; 
+                return false;
             }
 
             long size = new FileInfo(path).Length;
@@ -264,14 +295,14 @@ public sealed class MainViewController : UIViewController
                 if (_lib.Any(x => x.Path == path)) return false;
                 _lib.Add(new LibItem
                 {
-                    Path = path, 
-                    Format = fmt, 
+                    Path = path,
+                    Format = fmt,
                     FileName = name,
                     Title = pkg?.Title is { Length: > 0 } t ? t : Path.GetFileNameWithoutExtension(name),
                     TitleId = pkg?.TitleId is { Length: > 0 } i ? i : GameReader.TitleIdFromName(name),
                     Size = pkg != null && pkg.PackageSize > 0 ? pkg.PackageSize : size,
-                    Platform = pkg?.Platform ?? "", 
-                    Pkg = pkg, 
+                    Platform = pkg?.Platform ?? "",
+                    Pkg = pkg,
                     Queued = true,
                     SourceUrl = url,
                     HasAccess = access
