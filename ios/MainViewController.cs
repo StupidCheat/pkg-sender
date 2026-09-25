@@ -259,7 +259,6 @@ public sealed class MainViewController : UIViewController
 
     void PickFlow()
     {
-        // String identifiers compatibles sin necesidad de UTType de iOS 14+
         string[] allowedTypes = new string[] 
         { 
             "public.item", 
@@ -272,18 +271,23 @@ public sealed class MainViewController : UIViewController
             AllowsMultipleSelection = true
         };
 
-        picker.DidPickDocumentAtUrls += async (_, e) =>
+        picker.DidPickDocumentAtUrls += (sender, e) =>
         {
-            if (e.Urls == null || e.Urls.Length == 0) return;
-
-            Say($"Leyendo {e.Urls.Length} archivo(s)…");
-            int n = 0;
-            foreach (var url in e.Urls)
+            // Oculta el modal de inmediato para desbloquear la vista principal
+            picker.DismissViewController(true, async () =>
             {
-                if (await AddUrlAsync(url)) n++;
-            }
-            RefreshLib();
-            Say(n > 0 ? $"{n} agregado(s) — marca la casilla para enviar" : "No se pudo agregar el archivo");
+                if (e.Urls == null || e.Urls.Length == 0) return;
+
+                Say($"Leyendo {e.Urls.Length} archivo(s)…");
+                int n = 0;
+
+                foreach (var url in e.Urls)
+                {
+                    if (await AddUrlAsync(url)) n++;
+                }
+                RefreshLib();
+                Say(n > 0 ? $"{n} agregado(s) — marca para enviar" : "No se pudo agregar el archivo");
+            });
         };
 
         picker.WasCancelled += (_, _) =>
@@ -304,26 +308,33 @@ public sealed class MainViewController : UIViewController
             string name = url.LastPathComponent ?? "game.pkg";
             string tmp = Path.Combine(Path.GetTempPath(), name);
 
-            if (!File.Exists(tmp))
+            // Copia de archivo fuera del hilo UI
+            await Task.Run(() =>
             {
-                Say($"Copiando {name}…");
-                await Task.Run(() =>
+                if (!File.Exists(tmp))
                 {
+                    Say($"Copiando {name}…");
                     using var data = NSData.FromUrl(url, NSDataReadingOptions.Uncached, out NSError? err);
                     if (err != null || data == null)
                         throw new Exception(err?.LocalizedDescription ?? "Error al leer datos en iOS");
 
                     data.Save(tmp, false);
-                });
-            }
+                }
+            });
 
             string low = name.ToLowerInvariant();
             string fmt = low.EndsWith(".exfat") ? "exfat" : low.EndsWith(".ffpfsc") ? "ffpfsc"
                 : low.EndsWith(".ffpkg") ? "ffpkg" : low.EndsWith(".pfs") ? "pfs" : "pkg";
 
             PkgInfo? pkg = null;
-            try { pkg = GameReader.Read(tmp); }
-            catch (Exception ex) { Say("Parse warning: " + Short(ex.Message)); }
+            try 
+            { 
+                await Task.Run(() => { pkg = GameReader.Read(tmp); });
+            }
+            catch (Exception ex) 
+            { 
+                Say("Parse warning: " + Short(ex.Message)); 
+            }
 
             lock (_lib)
             {
