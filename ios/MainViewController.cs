@@ -38,6 +38,7 @@ public sealed class MainViewController : UIViewController
     UIButton? _sendBtn;
     UITableView? _table;
     UILabel? _libHead;
+    NSLayoutConstraint? _tableHeightConstraint;
 
     string SavedIp
     {
@@ -51,40 +52,40 @@ public sealed class MainViewController : UIViewController
         Title = "PKG Sender";
         View!.BackgroundColor = UIColor.SystemBackground;
 
-        var scroll = new UIScrollView
-        {
-            TranslatesAutoresizingMaskIntoConstraints = false,
-            DirectionalLockEnabled = true,
-            AlwaysBounceHorizontal = false,
-            ShowsHorizontalScrollIndicator = false,
-        };
+        var scroll = new UIScrollView { TranslatesAutoresizingMaskIntoConstraints = false };
         var stack = new UIStackView
         {
             Axis = UILayoutConstraintAxis.Vertical,
             Spacing = 12,
             TranslatesAutoresizingMaskIntoConstraints = false,
         };
-        // Keep LTR even on RTL system locales; otherwise the stack shifts half off-screen.
+
+        // Mantener LTR en sistemas RTL para evitar desplazamientos raros
         scroll.SemanticContentAttribute = UISemanticContentAttribute.ForceLeftToRight;
         stack.SemanticContentAttribute = UISemanticContentAttribute.ForceLeftToRight;
+
         View.AddSubview(scroll);
         scroll.AddSubview(stack);
+
+        // CORRECCIÓN AUTO LAYOUT: Uso de ContentLayoutGuide y FrameLayoutGuide
         NSLayoutConstraint.ActivateConstraints(new[]
         {
             scroll.TopAnchor.ConstraintEqualTo(View.SafeAreaLayoutGuide.TopAnchor),
-            scroll.LeadingAnchor.ConstraintEqualTo(View.SafeAreaLayoutGuide.LeadingAnchor),
-            scroll.TrailingAnchor.ConstraintEqualTo(View.SafeAreaLayoutGuide.TrailingAnchor),
+            scroll.LeadingAnchor.ConstraintEqualTo(View.LeadingAnchor),
+            scroll.TrailingAnchor.ConstraintEqualTo(View.TrailingAnchor),
             scroll.BottomAnchor.ConstraintEqualTo(View.SafeAreaLayoutGuide.BottomAnchor),
+
             stack.TopAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.TopAnchor, 12),
             stack.LeadingAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.LeadingAnchor, 16),
             stack.TrailingAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.TrailingAnchor, -16),
             stack.BottomAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.BottomAnchor, -12),
-            stack.WidthAnchor.ConstraintEqualTo(scroll.FrameLayoutGuide.WidthAnchor, -32),
+
+            stack.WidthAnchor.ConstraintEqualTo(scroll.FrameLayoutGuide.WidthAnchor, -32)
         });
 
         // hero: title + IP + Test + Detect
         var hero = Card();
-        hero.AddArrangedSubview(MkLabel("PKG Sender  •  v1.0.3", 22, true));
+        hero.AddArrangedSubview(MkLabel("PKG Sender", 22, true));
         hero.AddArrangedSubview(MkLabel("PS4 / PS5 packages over LAN", 14, false, UIColor.SecondaryLabel));
         _ipField = new UITextField
         {
@@ -97,20 +98,22 @@ public sealed class MainViewController : UIViewController
         };
         _ipField.SemanticContentAttribute = UISemanticContentAttribute.ForceLeftToRight;
         hero.AddArrangedSubview(_ipField);
-        var row = new UIStackView { Axis = UILayoutConstraintAxis.Horizontal, Spacing = 8 };
+
+        var row = new UIStackView { Axis = UILayoutConstraintAxis.Horizontal, Spacing = 8, Distribution = UIStackViewDistribution.FillEqually };
         row.AddArrangedSubview(MkBtn("Test", async () => await TestAsync()));
         row.AddArrangedSubview(MkBtn("Detect", async () => await DetectAsync()));
         var guide = MkBtn("Guide", ShowGuide);
         row.AddArrangedSubview(guide);
         hero.AddArrangedSubview(row);
+
         _connLabel = MkLabel("not tested", 13, true, UIColor.SecondaryLabel);
         hero.AddArrangedSubview(_connLabel);
         stack.AddArrangedSubview(hero);
 
-        // ELF card (same bundled pkg-receiver.elf as Android)
+        // ELF card
         var elf = Card();
         elf.AddArrangedSubview(MkLabel("pkg-receiver.elf (bundled, PS5 only)", 15, true));
-        var elfRow = new UIStackView { Axis = UILayoutConstraintAxis.Horizontal, Spacing = 8 };
+        var elfRow = new UIStackView { Axis = UILayoutConstraintAxis.Horizontal, Spacing = 8, Distribution = UIStackViewDistribution.FillEqually };
         elfRow.AddArrangedSubview(MkBtn("Save", async () => await ExportElfAsync(false)));
         elfRow.AddArrangedSubview(MkBtn("Share", async () => await ExportElfAsync(true)));
         elf.AddArrangedSubview(elfRow);
@@ -124,7 +127,8 @@ public sealed class MainViewController : UIViewController
         stack.AddArrangedSubview(libRow);
 
         _table = new UITableView { RowHeight = 64, ScrollEnabled = false, TranslatesAutoresizingMaskIntoConstraints = false };
-        _table.HeightAnchor.ConstraintEqualTo(320).Active = true;
+        _tableHeightConstraint = _table.HeightAnchor.ConstraintEqualTo(64);
+        _tableHeightConstraint.Active = true;
         _table.Source = new LibSource(this);
         stack.AddArrangedSubview(_table);
 
@@ -136,8 +140,7 @@ public sealed class MainViewController : UIViewController
         _statusLabel.Lines = 3;
         stack.AddArrangedSubview(_statusLabel);
 
-        NavigationItem.RightBarButtonItem = new UIBarButtonItem("About", UIBarButtonItemStyle.Plain,
-            (_, _) => ShowAbout());
+        NavigationItem.RightBarButtonItem = new UIBarButtonItem("About", UIBarButtonItemStyle.Plain, (_, _) => ShowAbout());
         RefreshLib();
     }
 
@@ -146,7 +149,8 @@ public sealed class MainViewController : UIViewController
     {
         var s = new UIStackView
         {
-            Axis = UILayoutConstraintAxis.Vertical, Spacing = 8,
+            Axis = UILayoutConstraintAxis.Vertical,
+            Spacing = 8,
             LayoutMarginsRelativeArrangement = true,
         };
         s.LayoutMargins = new UIEdgeInsets(14, 14, 14, 14);
@@ -154,33 +158,56 @@ public sealed class MainViewController : UIViewController
         s.BackgroundColor = UIColor.SecondarySystemBackground;
         return s;
     }
+
     static UILabel MkLabel(string t, nfloat size, bool bold, UIColor? c = null)
     {
         var l = new UILabel { Text = t, Font = bold ? UIFont.BoldSystemFontOfSize(size) : UIFont.SystemFontOfSize(size) };
         if (c != null) l.TextColor = c;
         return l;
     }
+
     static UIButton MkBtn(string t, Action a, bool filled = false)
     {
         var b = new UIButton(UIButtonType.System);
         b.SetTitle(t, UIControlState.Normal);
-        if (filled) { b.BackgroundColor = UIColor.SystemBlue; b.SetTitleColor(UIColor.White, UIControlState.Normal); b.Layer.CornerRadius = 12; }
+        if (filled)
+        {
+            b.BackgroundColor = UIColor.SystemBlue;
+            b.SetTitleColor(UIColor.White, UIControlState.Normal);
+            b.Layer.CornerRadius = 12;
+        }
         b.TouchUpInside += (_, _) => a();
         return b;
     }
+
     void Say(string s) => InvokeOnMainThread(() => { if (_statusLabel != null) _statusLabel.Text = s; });
+
     void SetConn(bool? ok, string t) => InvokeOnMainThread(() =>
     {
         if (_connLabel == null) return;
         _connLabel.Text = t;
         _connLabel.TextColor = ok == true ? UIColor.SystemGreen : ok == false ? UIColor.SystemRed : UIColor.SecondaryLabel;
     });
+
     void RefreshLib() => InvokeOnMainThread(() =>
     {
         if (_libHead != null) _libHead.Text = $"Library ({_lib.Count})";
-        if (_sendBtn != null) { int q = _lib.Count(x => x.Queued); _sendBtn.SetTitle(q > 0 ? $"Send queue ({q})" : "Send queue", UIControlState.Normal); }
+        if (_sendBtn != null)
+        {
+            int q = _lib.Count(x => x.Queued);
+            _sendBtn.SetTitle(q > 0 ? $"Send queue ({q})" : "Send queue", UIControlState.Normal);
+        }
+
+        // Ajustar dinámicamente la altura de la tabla dentro del scroll
+        if (_tableHeightConstraint != null)
+        {
+            nfloat totalHeight = Math.Max(64, _lib.Count * 64);
+            _tableHeightConstraint.Constant = totalHeight;
+        }
+
         _table?.ReloadData();
     });
+
     static string Short(string s) => s.Length > 140 ? s[..140] : s;
     static string SizeStr(long n) => n >= 1L << 30 ? $"{n / 1073741824.0:0.0} GB" : $"{n / 1048576.0:0.0} MB";
 
@@ -190,9 +217,13 @@ public sealed class MainViewController : UIViewController
         var types = new[] { UTTypes.Data };
         var picker = new UIDocumentPickerViewController(types, true);
         picker.AllowsMultipleSelection = true;
-        picker.DidPickDocument += async (_, e) =>
+
+        // CORRECCIÓN: DidPickDocumentAtUrls soporta múltiple selección
+        picker.DidPickDocumentAtUrls += async (_, e) =>
         {
-            var urls = new[] { e.Url };
+            var urls = e.Urls;
+            if (urls == null || urls.Length == 0) return;
+
             Say($"reading {urls.Length} file(s)…");
             int n = 0;
             foreach (var url in urls)
@@ -202,6 +233,7 @@ public sealed class MainViewController : UIViewController
             RefreshLib();
             Say(n > 0 ? $"{n} added — tick to queue" : "nothing added");
         };
+
         PresentViewController(picker, true, null);
     }
 
@@ -231,11 +263,15 @@ public sealed class MainViewController : UIViewController
                     if (_lib.Any(x => x.Path == tmp)) return false;
                     _lib.Add(new LibItem
                     {
-                        Path = tmp, Format = fmt, FileName = name,
+                        Path = tmp,
+                        Format = fmt,
+                        FileName = name,
                         Title = pkg?.Title is { Length: > 0 } t ? t : Path.GetFileNameWithoutExtension(name),
                         TitleId = pkg?.TitleId is { Length: > 0 } i ? i : GameReader.TitleIdFromName(name),
                         Size = pkg != null && pkg.PackageSize > 0 ? pkg.PackageSize : new FileInfo(tmp).Length,
-                        Platform = pkg?.Platform ?? "", Pkg = pkg, Queued = true,
+                        Platform = pkg?.Platform ?? "",
+                        Pkg = pkg,
+                        Queued = true,
                     });
                 }
                 return true;
@@ -263,7 +299,7 @@ public sealed class MainViewController : UIViewController
         catch (Exception ex) { Say("ELF failed: " + Short(ex.Message)); }
     }
 
-    // ---------- test / detect (same as Android) ----------
+    // ---------- test / detect ----------
     string PsIp => (_ipField?.Text ?? "").Trim();
 
     async Task TestAsync()
@@ -349,7 +385,7 @@ public sealed class MainViewController : UIViewController
         return NetDiscovery.BestPcIpFor(nets, psIp) ?? "0.0.0.0";
     }
 
-    // ---------- send queue (same as Android) ----------
+    // ---------- send queue ----------
     async Task SendQueueAsync()
     {
         if (_busy) return;
