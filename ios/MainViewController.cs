@@ -22,6 +22,10 @@ public sealed class MainViewController : UIViewController
     // UTImportedTypeDeclarations de Info.plist (ver nota al final del archivo).
     const string PkgUtiIdentifier = "com.loopayeh.pkgsender.pkg";
 
+    // Extensiones que la carpeta vigilada escanea automáticamente.
+    static readonly string[] WatchedExtensions = { ".pkg", ".exfat", ".ffpfsc", ".ffpkg", ".pfs" };
+    const string FolderBookmarkKey = "pkgWatchFolderBookmark";
+
     sealed class LibItem
     {
         public string Path = "";
@@ -52,11 +56,18 @@ public sealed class MainViewController : UIViewController
     UIButton? _sendBtn;
     UITableView? _table;
     UILabel? _libHead;
+    UILabel? _folderLabel;
 
     // VITAL: mantener referencia fuerte al picker. Si se libera antes de que
     // el usuario termine de interactuar con el sheet, el callback
     // DidPickDocumentAtUrls puede no dispararse nunca (síntoma: "no pasa nada").
     UIDocumentPickerViewController? _picker;
+
+    // Carpeta vigilada: se elige una vez, se guarda el permiso (bookmark) y
+    // se reescanea automáticamente cada vez que la pantalla vuelve a aparecer.
+    NSUrl? _watchFolder;
+    bool _watchFolderAccess;
+    bool _scanning;
 
     string SavedIp
     {
@@ -151,6 +162,18 @@ public sealed class MainViewController : UIViewController
         libRow.AddArrangedSubview(MkBtn("+ Add", PickFlow));
         stack.AddArrangedSubview(libRow);
 
+        // carpeta vigilada: elegirla una vez, luego solo "Rescanear"
+        var folderCard = Card();
+        folderCard.AddArrangedSubview(MkLabel("Carpeta vigilada", 15, true));
+        _folderLabel = MkLabel("ninguna — elige una carpeta con tus PKG", 13, false, UIColor.SecondaryLabel);
+        _folderLabel.Lines = 2;
+        folderCard.AddArrangedSubview(_folderLabel);
+        var folderRow = new UIStackView { Axis = UILayoutConstraintAxis.Horizontal, Spacing = 8, Distribution = UIStackViewDistribution.FillEqually };
+        folderRow.AddArrangedSubview(MkBtn("Elegir carpeta", PickFolderFlow));
+        folderRow.AddArrangedSubview(MkBtn("Rescanear", async () => await RescanWatchFolderAsync()));
+        folderCard.AddArrangedSubview(folderRow);
+        stack.AddArrangedSubview(folderCard);
+
         _table = new UITableView { RowHeight = 64, ScrollEnabled = false, TranslatesAutoresizingMaskIntoConstraints = false };
         _table.HeightAnchor.ConstraintEqualTo(320).Active = true;
         _table.Layer.CornerRadius = 12;
@@ -172,6 +195,16 @@ public sealed class MainViewController : UIViewController
         NavigationItem.RightBarButtonItem = new UIBarButtonItem("About", UIBarButtonItemStyle.Plain,
             (_, _) => ShowAbout());
         RefreshLib();
+    }
+
+    public override async void ViewWillAppear(bool animated)
+    {
+        base.ViewWillAppear(animated);
+        if (_busy || _scanning) return;
+        if (_watchFolder == null)
+            await TryRestoreWatchFolderAsync();
+        else
+            await ScanWatchFolderAsync(_watchFolder);
     }
 
     // ---------- UI helpers ----------
@@ -306,6 +339,150 @@ public sealed class MainViewController : UIViewController
                     Queued = true,
                     SourceUrl = url,
                     HasAccess = access
+                });
+            }
+            return true;
+        }
+        catch (Exception ex) { Say("add failed: " + Short(ex.Message)); return false; }
+    }
+
+    // ---------- carpeta vigilada (detección automática) ----------
+    void PickFolderFlow()
+    {
+        var picker = new UIDocumentPickerViewController(new[] { UTTypes.Folder }, asCopy: false);
+        _picker = picker;
+
+        picker.DidPickDocumentAtUrls += async (sender, e) =>
+        {
+            var url = e.Urls.FirstOrDefault();
+            _picker = null;
+            if (url == null) { Say("no se seleccionó carpeta"); return; }
+            await UseWatchFolderAsync(url, persist: true);
+        };
+        picker.WasCancelled += (sender, e) => _picker = null;
+
+        PresentViewController(picker, true, null);
+    }
+
+    async Task RescanWatchFolderAsync()
+    {
+        if (_watchFolder == null) { Say("elige una carpeta primero"); return; }
+        await ScanWatchFolderAsync(_watchFolder);
+    }
+
+    async Task UseWatchFolderAsync(NSUrl url, bool persist)
+    {
+        // liberar el permiso de la carpeta anterior, si había una distinta
+        if (_watchFolder != null && _watchFolderAccess && !_watchFolder.Equals(url))
+            _watchFolder.StopAccessingSecurityScopedResource();
+
+        bool access = url.StartAccessingSecurityScopedResource();
+        _watchFolder = url;
+        _watchFolderAccess = access;
+
+        InvokeOnMainThread(() => { if (_folderLabel != null) _folderLabel.Text = url.Path ?? url.LastPathComponent ?? "carpeta"; });
+
+        if (persist)
+        {
+            try
+            {
+                var data = url.CreateBookmarkData(NSUrlBookmarkCreationOptions.MinimalBookmark, null, null, out NSError err);
+                if (data != null)
+                    NSUserDefaults.StandardUserDefaults.SetValueForKey(data, new NSString(FolderBookmarkKey));
+                else if (err != null)
+                    Console.WriteLine("[Folder] bookmark error: " + err.LocalizedDescription);
+            }
+            catch (Exception ex) { Console.WriteLine("[Folder] bookmark exception: " + ex.Message); }
+        }
+
+        await ScanWatchFolderAsync(url);
+    }
+
+    async Task TryRestoreWatchFolderAsync()
+    {
+        try
+        {
+            if (NSUserDefaults.StandardUserDefaults.ValueForKey(new NSString(FolderBookmarkKey)) is not NSData data)
+                return;
+
+            var url = NSUrl.FromBookmarkData(data, NSUrlBookmarkResolutionOptions.WithoutUI, null, out bool stale, out NSError err);
+            if (url == null)
+            {
+                Console.WriteLine("[Folder] no se pudo restaurar el bookmark: " + err?.LocalizedDescription);
+                return;
+            }
+            await UseWatchFolderAsync(url, persist: stale); // si está "stale", regeneramos el bookmark
+        }
+        catch (Exception ex) { Console.WriteLine("[Folder] restore exception: " + ex.Message); }
+    }
+
+    async Task ScanWatchFolderAsync(NSUrl folder)
+    {
+        if (_scanning) return;
+        _scanning = true;
+        Say("escaneando carpeta…");
+        try
+        {
+            string? dirPath = folder.Path;
+            if (string.IsNullOrEmpty(dirPath)) { Say("carpeta inválida"); return; }
+
+            string[] names = await Task.Run(() =>
+                NSFileManager.DefaultManager.GetDirectoryContent(dirPath, out NSError err) ?? Array.Empty<string>());
+
+            int added = 0;
+            foreach (var name in names)
+            {
+                string low = name.ToLowerInvariant();
+                if (!WatchedExtensions.Any(ext => low.EndsWith(ext, StringComparison.Ordinal))) continue;
+
+                string fullPath = Path.Combine(dirPath, name);
+                bool already;
+                lock (_lib) already = _lib.Any(x => x.Path == fullPath);
+                if (already) continue;
+
+                if (await AddWatchedFileAsync(fullPath, name)) added++;
+            }
+
+            RefreshLib();
+            Say(added > 0 ? $"{added} detectado(s) en la carpeta" : "carpeta al día — nada nuevo");
+        }
+        catch (Exception ex) { Say("scan failed: " + Short(ex.Message)); }
+        finally { _scanning = false; }
+    }
+
+    // Igual que AddUrlAsync, pero para archivos dentro de la carpeta vigilada:
+    // el permiso de seguridad ya está activo a nivel de carpeta, así que no
+    // hace falta (ni se puede) pedir acceso por archivo individual.
+    async Task<bool> AddWatchedFileAsync(string path, string name)
+    {
+        try
+        {
+            string low = name.ToLowerInvariant();
+            string fmt = low.EndsWith(".exfat") ? "exfat" : low.EndsWith(".ffpfsc") ? "ffpfsc"
+                : low.EndsWith(".ffpkg") ? "ffpkg" : low.EndsWith(".pfs") ? "pfs" : "pkg";
+
+            PkgInfo? pkg = null;
+            try { pkg = GameReader.Read(path); }
+            catch (Exception ex) { Say("parse error: " + Short(ex.Message)); return false; }
+
+            long size = new FileInfo(path).Length;
+
+            lock (_lib)
+            {
+                if (_lib.Any(x => x.Path == path)) return false;
+                _lib.Add(new LibItem
+                {
+                    Path = path,
+                    Format = fmt,
+                    FileName = name,
+                    Title = pkg?.Title is { Length: > 0 } t ? t : Path.GetFileNameWithoutExtension(name),
+                    TitleId = pkg?.TitleId is { Length: > 0 } i ? i : GameReader.TitleIdFromName(name),
+                    Size = pkg != null && pkg.PackageSize > 0 ? pkg.PackageSize : size,
+                    Platform = pkg?.Platform ?? "",
+                    Pkg = pkg,
+                    Queued = true,
+                    SourceUrl = NSUrl.FromFilename(path),
+                    HasAccess = _watchFolderAccess
                 });
             }
             return true;
@@ -553,6 +730,16 @@ public sealed class MainViewController : UIViewController
             UIAlertControllerStyle.Alert);
         a.AddAction(UIAlertAction.Create("Close", UIAlertActionStyle.Default, null));
         PresentViewController(a, true, null);
+    }
+
+    public override void ViewDidDisappear(bool animated)
+    {
+        base.ViewDidDisappear(animated);
+        if (IsMovingFromParentViewController && _watchFolder != null && _watchFolderAccess)
+        {
+            _watchFolder.StopAccessingSecurityScopedResource();
+            _watchFolderAccess = false;
+        }
     }
 
     // ---------- table ----------
