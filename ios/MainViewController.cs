@@ -22,7 +22,7 @@ public sealed class MainViewController : UIViewController
         public PkgInfo? Pkg;
         public bool Queued = true;
         public string State = "";
-        public NSUrl? SecurityScopedUrl;
+        public NSUrl? Url;
     }
 
     readonly List<LibItem> _lib = new();
@@ -47,7 +47,6 @@ public sealed class MainViewController : UIViewController
     public override void ViewDidLoad()
     {
         base.ViewDidLoad();
-        Title = "PKG Sender";
         View!.BackgroundColor = UIColor.SystemBackground;
 
         var scroll = new UIScrollView
@@ -257,14 +256,8 @@ public sealed class MainViewController : UIViewController
 
     void PickFlow()
     {
-        string[] allowedTypes = new string[] 
-        { 
-            "public.item", 
-            "public.data", 
-            "public.content" 
-        };
+        string[] allowedTypes = new[] { "public.item", "public.data", "public.content" };
 
-        // En .NET for iOS, el parámetro `asCopy: false` activa la lectura in-situ sin duplicar archivos
         var picker = new UIDocumentPickerViewController(allowedTypes, UIDocumentPickerMode.Open, false)
         {
             AllowsMultipleSelection = true
@@ -272,7 +265,6 @@ public sealed class MainViewController : UIViewController
 
         picker.DidPickDocumentAtUrls += (sender, e) =>
         {
-            // Cierre inmediato de la interfaz modal para desbloquear la vista principal
             picker.DismissViewController(true, async () =>
             {
                 if (e.Urls == null || e.Urls.Length == 0) return;
@@ -299,19 +291,16 @@ public sealed class MainViewController : UIViewController
 
     async Task<bool> AddUrlAsync(NSUrl url)
     {
-        bool access = false;
+        bool access = url.StartAccessingSecurityScopedResource();
         try
         {
-            // Solicitar acceso temporal al archivo original en la Sandbox
-            access = url.StartAccessingSecurityScopedResource();
-            
             string filePath = url.Path ?? "";
             string name = url.LastPathComponent ?? "game.pkg";
 
             if (!File.Exists(filePath))
             {
                 Say($"Ruta no accesible: {name}");
-                if (access) url.StopAccessingSecurityScopedResource();
+                url.StopAccessingSecurityScopedResource();
                 return false;
             }
 
@@ -321,7 +310,6 @@ public sealed class MainViewController : UIViewController
 
             PkgInfo? pkg = null;
 
-            // Procesar la lectura de encabezados en segundo plano
             await Task.Run(() =>
             {
                 try 
@@ -352,8 +340,7 @@ public sealed class MainViewController : UIViewController
                     Size = pkg != null && pkg.PackageSize > 0 ? pkg.PackageSize : new FileInfo(filePath).Length,
                     Platform = pkg?.Platform ?? "",
                     Pkg = pkg,
-                    Queued = true,
-                    SecurityScopedUrl = access ? url : null
+                    Queued = true
                 });
             }
             return true;
@@ -504,12 +491,6 @@ public sealed class MainViewController : UIViewController
                 foreach (var q in queue)
                 {
                     if (q.State.StartsWith("done")) q.Queued = false;
-                    
-                    if (q.SecurityScopedUrl != null)
-                    {
-                        q.SecurityScopedUrl.StopAccessingSecurityScopedResource();
-                        q.SecurityScopedUrl = null;
-                    }
                 }
             }
             RefreshLib();
