@@ -50,12 +50,12 @@ public sealed class MainViewController : UIViewController
         Title = "PKG Sender";
         View!.BackgroundColor = UIColor.SystemBackground;
 
-        // 1. Configuración del ScrollView para permitir scroll Vertical y Horizontal
+        // Configuración del ScrollView con scroll vertical y horizontal
         var scroll = new UIScrollView
         {
             TranslatesAutoresizingMaskIntoConstraints = false,
             AlwaysBounceVertical = true,
-            AlwaysBounceHorizontal = true, // Permite scroll a la izquierda y derecha
+            AlwaysBounceHorizontal = true,
             ShowsHorizontalScrollIndicator = true,
             ShowsVerticalScrollIndicator = true,
         };
@@ -71,7 +71,7 @@ public sealed class MainViewController : UIViewController
         };
         scroll.AddSubview(stack);
 
-        // Anclar ScrollView a la pantalla
+        // Anclar ScrollView a los bordes de la pantalla
         NSLayoutConstraint.ActivateConstraints(new[]
         {
             scroll.TopAnchor.ConstraintEqualTo(View.SafeAreaLayoutGuide.TopAnchor),
@@ -80,16 +80,13 @@ public sealed class MainViewController : UIViewController
             scroll.TrailingAnchor.ConstraintEqualTo(View.SafeAreaLayoutGuide.TrailingAnchor),
         });
 
-        // 2. Corregido el Auto-Layout del StackView dentro del ScrollView:
-        // Usamos ContentLayoutGuide para definir el área de scroll y FrameLayoutGuide para calcular anchos mínimos/dinámicos.
+        // Configuración de auto-layout usando LayoutGuides para evitar desbordamientos a la derecha
         NSLayoutConstraint.ActivateConstraints(new[]
         {
             stack.TopAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.TopAnchor, 12),
             stack.BottomAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.BottomAnchor, -12),
             stack.LeadingAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.LeadingAnchor, 16),
             stack.TrailingAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.TrailingAnchor, -16),
-            
-            // Garantiza que el ancho sea como mínimo el de la pantalla (menos márgenes), pero puede crecer hacia la derecha si es necesario.
             stack.WidthAnchor.ConstraintGreaterThanOrEqualTo(scroll.FrameLayoutGuide.WidthAnchor, -32),
         });
 
@@ -263,21 +260,27 @@ public sealed class MainViewController : UIViewController
 
     void PickFlow()
     {
-        var types = new[] { UTTypes.Data };
-        var picker = new UIDocumentPickerViewController(types, true);
-        picker.AllowsMultipleSelection = true;
-        picker.DidPickDocument += async (_, e) =>
+        // Ampliación de tipos de documento para permitir la selección de PKGs
+        var types = new[] { UTType.Item, UTType.Data, UTType.Content };
+        var picker = new UIDocumentPickerViewController(types, true)
         {
-            var urls = new[] { e.Url };
-            Say($"reading {urls.Length} file(s)…");
+            AllowsMultipleSelection = true
+        };
+
+        picker.DidPickDocumentAtUrls += async (_, e) =>
+        {
+            if (e.Urls == null || e.Urls.Length == 0) return;
+
+            Say($"Leyendo {e.Urls.Length} archivo(s)…");
             int n = 0;
-            foreach (var url in urls)
+            foreach (var url in e.Urls)
             {
                 if (await AddUrlAsync(url)) n++;
             }
             RefreshLib();
-            Say(n > 0 ? $"{n} added — tick to queue" : "nothing added");
+            Say(n > 0 ? $"{n} agregado(s) — marca para enviar" : "No se pudo agregar el archivo");
         };
+
         PresentViewController(picker, true, null);
     }
 
@@ -286,37 +289,60 @@ public sealed class MainViewController : UIViewController
         bool access = false;
         try
         {
+            // Solicita permisos a la Sandbox de iOS
             access = url.StartAccessingSecurityScopedResource();
+            
             string name = url.LastPathComponent ?? "game.pkg";
             string tmp = Path.Combine(Path.GetTempPath(), name);
+
             if (!File.Exists(tmp))
             {
-                using var src = File.OpenRead(url.Path!);
-                using var dst = File.Create(tmp);
-                await src.CopyToAsync(dst);
+                Say($"Copiando {name}…");
+                await Task.Run(() =>
+                {
+                    using var data = NSData.FromUrl(url, NSDataReadingOptions.Uncached, out NSError? err);
+                    if (err != null || data == null)
+                        throw new Exception(err?.LocalizedDescription ?? "Error al leer datos en iOS");
+
+                    data.Save(tmp, false);
+                });
             }
+
             string low = name.ToLowerInvariant();
             string fmt = low.EndsWith(".exfat") ? "exfat" : low.EndsWith(".ffpfsc") ? "ffpfsc"
                 : low.EndsWith(".ffpkg") ? "ffpkg" : low.EndsWith(".pfs") ? "pfs" : "pkg";
+
             PkgInfo? pkg = null;
             try { pkg = GameReader.Read(tmp); }
-            catch (Exception ex) { Say("parse: " + Short(ex.Message)); return false; }
+            catch (Exception ex) { Say("Parse warning: " + Short(ex.Message)); }
+
             lock (_lib)
             {
                 if (_lib.Any(x => x.Path == tmp)) return false;
                 _lib.Add(new LibItem
                 {
-                    Path = tmp, Format = fmt, FileName = name,
+                    Path = tmp,
+                    Format = fmt,
+                    FileName = name,
                     Title = pkg?.Title is { Length: > 0 } t ? t : Path.GetFileNameWithoutExtension(name),
                     TitleId = pkg?.TitleId is { Length: > 0 } i ? i : GameReader.TitleIdFromName(name),
                     Size = pkg != null && pkg.PackageSize > 0 ? pkg.PackageSize : new FileInfo(tmp).Length,
-                    Platform = pkg?.Platform ?? "", Pkg = pkg, Queued = true,
+                    Platform = pkg?.Platform ?? "",
+                    Pkg = pkg,
+                    Queued = true,
                 });
             }
             return true;
         }
-        catch (Exception ex) { Say("add failed: " + Short(ex.Message)); return false; }
-        finally { if (access) url.StopAccessingSecurityScopedResource(); }
+        catch (Exception ex)
+        {
+            Say("Error al agregar: " + Short(ex.Message));
+            return false;
+        }
+        finally
+        {
+            if (access) url.StopAccessingSecurityScopedResource();
+        }
     }
 
     async Task ExportElfAsync(bool share)
