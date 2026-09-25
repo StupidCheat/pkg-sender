@@ -1,31 +1,4 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--
-  Info-additions.plist
-  -----------------------------------------------------------------------
-  Esto NO es un Info.plist completo — es el fragmento que debes fusionar
-  dentro del <dict> raíz de tu Info.plist real (el que ya tiene tu
-  proyecto, normalmente en iOS/Info.plist o Platforms/iOS/Info.plist).
-
-  Qué hace cada clave:
-
-  - UTImportedTypeDeclarations: declara un UTI propio para archivos .pkg
-    para que iOS deje de tratarlos como "installer package" / bundle al
-    abrirlos con UIDocumentPickerViewController. Sin esto, el picker se
-    queda "colgado" al tocar Abrir en un .pkg (síntoma original).
-
-  - LSSupportsOpeningDocumentsInPlace: permite trabajar con archivos en
-    su ubicación original (asCopy: false) sin que iOS los copie a un
-    sandbox temporal. Necesario para no duplicar archivos pesados.
-
-  - UIFileSharingEnabled: hace visible la carpeta Documents de la app
-    en la app Archivos / iTunes File Sharing, útil para depurar o para
-    colocar PKGs directamente en el sandbox de la app.
-
-  - UISupportsDocumentBrowser: habilita el modo de navegador de
-    documentos completo (opcional, pero recomendado junto con
-    UIFileSharingEnabled si el usuario va a elegir carpetas externas).
-  -----------------------------------------------------------------------
--->
 <plist version="1.0">
 <dict>
 
