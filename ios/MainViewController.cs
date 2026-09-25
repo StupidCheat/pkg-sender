@@ -63,7 +63,12 @@ public sealed class MainViewController : UIViewController
         // VITAL: Evita que la pantalla se bloquee y corte la transferencia HTTP
         UIApplication.SharedApplication.IdleTimerDisabled = true;
 
-        var scroll = new UIScrollView { TranslatesAutoresizingMaskIntoConstraints = false };
+        var scroll = new UIScrollView 
+        { 
+            TranslatesAutoresizingMaskIntoConstraints = false,
+            ShowsHorizontalScrollIndicator = true // Muestra la barra de scroll de izquierda a derecha
+        };
+        
         var stack = new UIStackView
         {
             Axis = UILayoutConstraintAxis.Vertical,
@@ -75,20 +80,27 @@ public sealed class MainViewController : UIViewController
         View.AddSubview(scroll);
         scroll.AddSubview(stack);
         
-        // REGLAS PARA EL SCROLLVIEW Y EL STACK (Centrado perfecto)
+        // REGLAS PARA ACTIVAR EL SCROLL HORIZONTAL
         NSLayoutConstraint.ActivateConstraints(new[]
         {
+            // Pegar el scroll a los bordes de la pantalla
             scroll.TopAnchor.ConstraintEqualTo(View.SafeAreaLayoutGuide.TopAnchor),
             scroll.LeadingAnchor.ConstraintEqualTo(View.SafeAreaLayoutGuide.LeadingAnchor),
             scroll.TrailingAnchor.ConstraintEqualTo(View.SafeAreaLayoutGuide.TrailingAnchor),
             scroll.BottomAnchor.ConstraintEqualTo(View.SafeAreaLayoutGuide.BottomAnchor),
             
+            // Definir el contenido interno del scroll
             stack.TopAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.TopAnchor, 16),
             stack.BottomAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.BottomAnchor, -16),
             stack.LeadingAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.LeadingAnchor, 16),
             stack.TrailingAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.TrailingAnchor, -16),
             
-            stack.WidthAnchor.ConstraintEqualTo(scroll.FrameLayoutGuide.WidthAnchor, -32)
+            // Magia del Scroll Horizontal:
+            // 1. Ocupa como mínimo el ancho de la pantalla
+            stack.WidthAnchor.ConstraintGreaterThanOrEqualTo(scroll.FrameLayoutGuide.WidthAnchor, -32),
+            // 2. PERO nunca será menor a 420 puntos de ancho. Esto obliga al iPhone a habilitar
+            // el scroll de derecha a izquierda en pantallas pequeñas, evitando que todo se aplaste.
+            stack.WidthAnchor.ConstraintGreaterThanOrEqualToConstant(420)
         });
 
         // hero: title + IP + Test + Detect
