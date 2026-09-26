@@ -61,9 +61,10 @@ public sealed class MainViewController : UIViewController
         var scroll = new UIScrollView
         {
             TranslatesAutoresizingMaskIntoConstraints = false,
-            DirectionalLockEnabled = true,
-            AlwaysBounceHorizontal = false,
-            ShowsHorizontalScrollIndicator = false,
+            AlwaysBounceHorizontal = true,
+            AlwaysBounceVertical = true,
+            ShowsHorizontalScrollIndicator = true,
+            ShowsVerticalScrollIndicator = true,
         };
         var stack = new UIStackView
         {
@@ -86,7 +87,7 @@ public sealed class MainViewController : UIViewController
             stack.LeadingAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.LeadingAnchor, 16),
             stack.TrailingAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.TrailingAnchor, -16),
             stack.BottomAnchor.ConstraintEqualTo(scroll.ContentLayoutGuide.BottomAnchor, -12),
-            stack.WidthAnchor.ConstraintEqualTo(scroll.FrameLayoutGuide.WidthAnchor, -32),
+            stack.WidthAnchor.ConstraintGreaterThanOrEqualTo(scroll.FrameLayoutGuide.WidthAnchor, -32),
         });
 
         // hero: title + IP + Test + Detect
