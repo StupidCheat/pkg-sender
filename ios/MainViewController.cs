@@ -374,7 +374,7 @@ public sealed class MainViewController : UIViewController
     }
 
     // ---------- test / detect (same as Android) ----------
-    string PsIp => (_ipField?.Text ?? "").Trim();
+    string PsIp => Ps4Installer.SanitizeIp(_ipField?.Text);
 
     async Task TestAsync()
     {
@@ -391,7 +391,12 @@ public sealed class MainViewController : UIViewController
             {
                 string diag = await Ps4Installer.DiagnoseAsync(psIp);
                 SetConn(false, "offline — " + psIp);
-                Say($"OFFLINE {psIp} phone={pcIp}\n{diag}");
+                Say($"OFFLINE {psIp} phone={pcIp}\n{diag}\n\n"
+                    + "Revisa:\n"
+                    + "1) Ajustes > PKG Sender > activa \"Red local\" (Local Network).\n"
+                    + "2) iPhone y PS4 en la MISMA red Wi-Fi (sin \"Aislamiento de AP\" / red de invitados).\n"
+                    + "3) En la PS4 abre Remote Package Installer (puerto 12800) o activa Payload Server de GoldHEN.\n"
+                    + "4) Desactiva VPN / DNS privado en el iPhone.");
                 return;
             }
             Say($"console={mode} phone={pcIp}");
