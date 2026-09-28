@@ -33,15 +33,47 @@ public static class Ps4Installer
         catch { return null; }
     }
 
+    /// <summary>
+    /// Clean what the user typed in the IP box: "http://192.168.1.5:12800/" ->
+    /// "192.168.1.5". Spaces, scheme, port, path and Arabic/Persian digits are
+    /// removed/converted so a "correct" IP never fails because of formatting.
+    /// </summary>
+    public static string SanitizeIp(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return "";
+        var sb = new StringBuilder();
+        foreach (char ch in raw.Trim())
+        {
+            if (ch >= '\u0660' && ch <= '\u0669') sb.Append((char)('0' + (ch - '\u0660')));      // Arabic-Indic
+            else if (ch >= '\u06F0' && ch <= '\u06F9') sb.Append((char)('0' + (ch - '\u06F0')));  // Persian
+            else if (ch == '\u066B' || ch == '\u060C') sb.Append('.');
+            else if (!char.IsWhiteSpace(ch)) sb.Append(ch);
+        }
+        string s = sb.ToString();
+        int i = s.IndexOf("://", StringComparison.Ordinal);
+        if (i >= 0) s = s[(i + 3)..];
+        int slash = s.IndexOf('/');
+        if (slash >= 0) s = s[..slash];
+        int colon = s.IndexOf(':');
+        if (colon >= 0) s = s[..colon];
+        return s.Trim('.');
+    }
+
     public static async Task<bool> IsRpiOnlineAsync(string ip)
     {
-        string? body = await GetBodyAsync($"http://{ip}:12800/api");
-        return body != null && body.Contains("Unsupported method") && body.Contains("fail");
+        string? body = await GetBodyAsync($"http://{ip}:12800/api", 4000);
+        if (body == null)
+            return await TcpOnlyAsync(ip, 12800) == "open";   // service up, HTTP slow/odd
+        if (body.Contains("Unsupported method") && body.Contains("fail"))
+            return true;                                       // classic RPI reply
+        // Any other HTTP answer on 12800 (newer RPI builds, other receivers)
+        // still means "the installer is there" — don't reject it.
+        return true;
     }
 
     public static async Task<bool> IsGoldHenOnlineAsync(string ip)
     {
-        string? body = await GetBodyAsync($"http://{ip}:9090/status");
+        string? body = await GetBodyAsync($"http://{ip}:9090/status", 4000);
         return body != null && body.Replace(" ", "").Contains("\"status\":\"ready\"");
     }
 
@@ -64,10 +96,18 @@ public static class Ps4Installer
 
     private static async Task<string> DetectUncachedAsync(string ip)
     {
-        if (await IsRpiOnlineAsync(ip)) return "rpi";
-        if (await IsGoldHenOnlineAsync(ip)) return "goldhen";
-        // raw binloader ports still count as goldhen-capable
-        if (await CanConnectPayloadPortAsync(ip)) return "goldhen";
+        ip = SanitizeIp(ip);
+        if (ip.Length == 0) return "offline";
+        // Two rounds: on iPhone the very first LAN connection right after the
+        // "Local Network" permission prompt often fails once.
+        for (int attempt = 0; attempt < 2; attempt++)
+        {
+            if (await IsRpiOnlineAsync(ip)) return "rpi";
+            if (await IsGoldHenOnlineAsync(ip)) return "goldhen";
+            // raw binloader ports still count as goldhen-capable
+            if (await CanConnectPayloadPortAsync(ip)) return "goldhen";
+            if (attempt == 0) await Task.Delay(1000);
+        }
         return "offline";
     }
 
@@ -85,12 +125,12 @@ public static class Ps4Installer
         return sb.ToString();
     }
 
-    private static async Task<string> TcpOnlyAsync(string ip, int port)
+    internal static async Task<string> TcpOnlyAsync(string ip, int port)
     {
         try
         {
             using var c = new TcpClient();
-            using var cts = new CancellationTokenSource(2000);
+            using var cts = new CancellationTokenSource(3000);
             await c.ConnectAsync(ip, port, cts.Token);
             return "open";
         }
